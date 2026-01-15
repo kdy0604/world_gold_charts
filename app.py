@@ -2,46 +2,46 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 
-# 페이지 설정
-st.set_page_config(page_title="실시간 금 시세 계산기", layout="centered")
+st.set_page_config(page_title="금 1돈 시세 계산기", layout="centered")
 
 st.title("💰 실시간 국제 금 1돈 시세")
 
-@st.cache_data(ttl=600)  # 10분마다 데이터 갱신
-def get_data():
-    # 금(GC=F) 및 환율(KRW=X) 데이터 가져오기
-    gold = yf.Ticker("GC=F")
-    exchange = yf.Ticker("KRW=X")
+@st.cache_data(ttl=600)
+def get_gold_data():
+    # 1. 데이터 가져오기 (최근 1개월)
+    gold = yf.Ticker("GC=F").history(period="1mo")
+    exchange = yf.Ticker("KRW=X").history(period="1mo")
     
-    # 최근 30일 데이터 (차트용)
-    gold_hist = gold.history(period="1mo")
-    ex_hist = exchange.history(period="1mo")
+    # 2. 날짜 기준으로 두 데이터 합치기 (데이터가 없는 날은 직전 값으로 채움)
+    df = pd.DataFrame({
+        'gold_usd': gold['Close'],
+        'usd_krw': exchange['Close']
+    }).ffill()
     
-    current_gold = gold_hist['Close'].iloc[-1]
-    current_ex = ex_hist['Close'].iloc[-1]
-
-    history_don=(gold_hist*ex_hist)/31.1035*3.75
+    # 3. 1돈 당 원화 계산 공식 적용
+    # 공식: (금달러 * 환율) / 31.1035 * 3.75
+    df['price_krw_don'] = (df['gold_usd'] * df['usd_krw']) / 31.1035 * 3.75
     
-    return current_gold, current_ex, gold_hist, history_don
+    return df
 
-gold_usd, krw_usd, history, history_don = get_data()
+try:
+    data = get_gold_data()
+    current_price = data['price_krw_don'].iloc[-1]
+    current_ex = data['usd_krw'].iloc[-1]
+    last_gold_usd = data['gold_usd'].iloc[-1]
 
-# 1돈 환산 계산
-# 공식: (1온스달러 * 환율) / 31.1035 * 3.75
-price_per_don = (gold_usd * krw_usd) / 31.1035 * 3.75
-his=(gold_hist*ex_hist)/31.1035*3.75
+    # 메인 지표
+    col1, col2 = st.columns(2)
+    col1.metric("금 1돈 (3.75g)", f"{int(current_price):,} 원")
+    col2.metric("현재 환율", f"{current_ex:.2f} 원/$")
 
-# 메인 지표 출력
-col1, col2 = st.columns(2)
-col1.metric("금 1돈 (3.75g)", f"{int(price_per_don):,} 원")
-col2.metric("현재 환율", f"{krw_usd:.2f} 원/$")
+    st.write(f"현재 국제 시세: ${last_gold_usd:.2f} / t oz")
 
-st.info(f"국제 금 시세: ${price_per_don:.2f} / 원")
+    # 차트 시각화 (1돈 가격 기준)
+    st.subheader("📈 최근 30일 금 1돈 시세 추이 (원)")
+    st.line_chart(data['price_krw_don'])
 
-# 차트 시각화
-st.subheader("📈 최근 30일 국제 금 시세 추이 ($)")
-st.line_chart(history_don['Close'])
+except Exception as e:
+    st.error(f"데이터를 불러오는 중 오류가 발생했습니다: {e}")
 
-st.caption("데이터 출처: Yahoo Finance (10분마다 업데이트)")
-
-
+st.caption("공식: (국제금시세 * 환율) / 31.1035 * 3.75")

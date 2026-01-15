@@ -1,6 +1,8 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
+# Plotly를 사용한 커스텀 차트 (Y축 범위 자동 조정)
+import plotly.express as px
 
 st.set_page_config(page_title="금 1돈 시세 계산기", layout="centered")
 
@@ -44,9 +46,6 @@ try:
 min_val = data['price_krw_don'].min() * 0.98
 max_val = data['price_krw_don'].max() * 1.02
 
-# Plotly를 사용한 커스텀 차트 (Y축 범위 자동 조정)
-import plotly.express as px
-
 fig = px.line(data, y='price_krw_don', title="최근 30일 금 1돈 시세 추이 (원)")
 fig.update_yaxes(range=[min_val, max_val]) # Y축 범위를 데이터 근처로 고정
 fig.update_layout(
@@ -62,4 +61,5 @@ except Exception as e:
     st.error(f"데이터를 불러오는 중 오류가 발생했습니다: {e}")
 
 st.caption("공식: (국제금시세 * 환율) / 31.1035 * 3.75")
+
 

@@ -19,10 +19,12 @@ def get_data():
     
     current_gold = gold_hist['Close'].iloc[-1]
     current_ex = ex_hist['Close'].iloc[-1]
-    
-    return current_gold, current_ex, gold_hist
 
-gold_usd, krw_usd, history = get_data()
+    history_don=(gold_hist*ex_hist)/31.1035*3.75
+    
+    return current_gold, current_ex, gold_hist, history_don
+
+gold_usd, krw_usd, history, history_don = get_data()
 
 # 1돈 환산 계산
 # 공식: (1온스달러 * 환율) / 31.1035 * 3.75
@@ -38,7 +40,8 @@ st.info(f"국제 금 시세: ${price_per_don:.2f} / 원")
 
 # 차트 시각화
 st.subheader("📈 최근 30일 국제 금 시세 추이 ($)")
-st.line_chart(his['Close'])
+st.line_chart(history_don['Close'])
 
 st.caption("데이터 출처: Yahoo Finance (10분마다 업데이트)")
+
 

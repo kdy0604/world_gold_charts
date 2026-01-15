@@ -5,7 +5,7 @@ import pandas as pd
 # 페이지 설정
 st.set_page_config(page_title="실시간 금 시세 계산기", layout="centered")
 
-st.title("💰 실시간 금 1돈 시세")
+st.title("💰 실시간 국제 금 1돈 시세")
 
 @st.cache_data(ttl=600)  # 10분마다 데이터 갱신
 def get_data():
@@ -27,16 +27,18 @@ gold_usd, krw_usd, history = get_data()
 # 1돈 환산 계산
 # 공식: (1온스달러 * 환율) / 31.1035 * 3.75
 price_per_don = (gold_usd * krw_usd) / 31.1035 * 3.75
+his=(gold_hist*ex_hist)/31.1035*3.75
 
 # 메인 지표 출력
 col1, col2 = st.columns(2)
 col1.metric("금 1돈 (3.75g)", f"{int(price_per_don):,} 원")
 col2.metric("현재 환율", f"{krw_usd:.2f} 원/$")
 
-st.info(f"국제 금 시세: ${gold_usd:.2f} / t oz")
+st.info(f"국제 금 시세: ${price_per_don:.2f} / 원")
 
 # 차트 시각화
 st.subheader("📈 최근 30일 국제 금 시세 추이 ($)")
-st.line_chart(history['Close'])
+st.line_chart(his['Close'])
 
 st.caption("데이터 출처: Yahoo Finance (10분마다 업데이트)")
+

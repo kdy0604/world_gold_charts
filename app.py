@@ -93,6 +93,8 @@ if data is not None:
 
     st.divider()
 
+    st.caption("공식: (국제금시세 * 환율) / 31.1035 * 3.75")
+
     # --- 은(Silver) 섹션 ---
     st.markdown('<p class="main-title">⚪ 국제 은 시세 (1돈)</p>', unsafe_allow_html=True)
     st.markdown(f"""

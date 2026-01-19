@@ -17,7 +17,14 @@ st.markdown("""
     
     /* 제목 및 텍스트 스타일 */
     .gs-title { font-size: clamp(18px, 6vw, 30px) !important; 
-        font-weight: 700; margin-top: 20px; margin-bottom: 5px; }
+        font-weight: 700; margin-top: 20px; margin-bottom: 5px; 
+        white-space: nowrap !important;     /* 줄바꿈 금지 */
+        overflow: hidden !important;        /* 넘치는 부분 숨김 */
+        text-overflow: ellipsis !important; /* 혹시 넘치면 ... 표시 (안전장치) */
+        
+        line-height: 1.2 !important;
+        display: block !important;
+        }
     .geneva-title { font-size: 15px; font-weight: 700; margin-top: 20px; margin-bottom: 20px; padding-left: 30px; }
     .main-title { font-size: 20px; font-weight: 700; margin-top: 20px; margin-bottom: 10px; }
     .custom-container { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 15px; }

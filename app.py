@@ -11,7 +11,7 @@ st.markdown("""
     <style>
     .main-title { font-size: 24px !important; font-weight: 700; margin-bottom: 10px; }
     .sub-title { font-size: 16px !important; color: #666; }
-    .price-text { font-size: 30px !important; font-weight: 800; color: #1E1E1E; margin-bottom: -5px; }
+    .price-text { font-size: 25px !important; font-weight: 800; color: #1E1E1E;} #  margin-bottom: -5px;  삭제
     .exchange-text { font-size: 18px !important; font-weight: 600; color: #444; }
     .stMetric { padding: 0px !important; }
     </style>

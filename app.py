@@ -54,9 +54,14 @@ try:
         height=300, # 차트 높이 줄임
         hovermode="x unified"
     )
-    fig.update_traces(hoverinfo="skip", hovertemplate="None") # 차트 터치 막음
-    fig.update_layout(hovermode=false)
-    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+    st.plotly_chart(
+        fig, 
+        use_container_width=True, 
+        config={
+            'displayModeBar': False
+            'scrollZoom': False
+        }
+    )
 
 except Exception as e:
     st.warning("데이터 로딩 중... 잠시 후 새로고침 하세요.")

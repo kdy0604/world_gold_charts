@@ -32,7 +32,7 @@ try:
     last_gold_usd = data['gold_usd'].iloc[-1]
     
     # 상단 텍스트 (크기 조절됨)
-    st.markdown('<p class="main-title">💰 실시간 금 1돈 시세</p>', unsafe_allow_html=True)
+    st.markdown('<p class="main-title">💰 실시간 금 1돈 국제 시세</p>', unsafe_allow_html=True)
     
     col1, col2 = st.columns(2)
     with col1:
@@ -54,6 +54,7 @@ try:
         height=300, # 차트 높이 줄임
         hovermode="x unified"
     )
+    fig.update_traces(hoverinfo="skip", hovertemplate="None") # 차트 터치 막음
     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 
 except Exception as e:

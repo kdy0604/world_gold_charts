@@ -55,6 +55,7 @@ try:
         hovermode="x unified"
     )
     fig.update_traces(hoverinfo="skip", hovertemplate="None") # 차트 터치 막음
+    fig.update_layout(hovermode=false)
     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 
 except Exception as e:

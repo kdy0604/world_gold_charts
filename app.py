@@ -22,9 +22,9 @@ st.markdown("""
     .equal { color: #666; }
     </style>
     """, unsafe_allow_html=True)
+}
 .stPlotlyChart {
     touch-action: pan-y !important; /* 세로 스크롤(pan-y)을 차트가 아닌 브라우저가 처리하도록 강제 */
-}
 
 # 2. 데이터 불러오기 함수 (금, 은, 환율 통합)
 @st.cache_data(ttl=3600)

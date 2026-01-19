@@ -53,18 +53,9 @@ try:
         margin=dict(l=0, r=0, t=10, b=0), # 차트 여백 최소화
         height=300, # 차트 높이 줄임
         hovermode="x unified"
+        dragmode=False,  # 차트 위에서 드래그(슬라이딩) 기능을 끔
     )
-    st.plotly_chart(
-        fig, 
-        use_container_width=True, 
-        config={
-            'staticPlot': False,
-            'scrollZoom': False,
-            'displayModeBar': False,
-            'doubleClick': 'reset',        # 더블클릭 시 리셋
-            'modeBarButtonsToRemove': ['pan2d', 'zoom2d', 'select2d', 'lasso2d'] # 이동/확대 도구 삭제
-        }
-    )
+    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False}
 
 except Exception as e:
     st.warning("데이터 로딩 중... 잠시 후 새로고침 하세요.")

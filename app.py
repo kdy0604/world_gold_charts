@@ -22,6 +22,9 @@ st.markdown("""
     .equal { color: #666; }
     </style>
     """, unsafe_allow_html=True)
+.stPlotlyChart {
+    touch-action: pan-y !important; /* 세로 스크롤(pan-y)을 차트가 아닌 브라우저가 처리하도록 강제 */
+}
 
 # 2. 데이터 불러오기 함수 (금, 은, 환율 통합)
 @st.cache_data(ttl=3600)
@@ -88,17 +91,16 @@ if data is not None:
     fig_g.update_traces(line_color='#f1c40f')
     fig_g.update_layout(xaxis_title=None, yaxis_title=None, height=250, margin=dict(l=0,r=0,t=10,b=0),
                         yaxis=dict(range=[data['gold_don'].min()*0.99, data['gold_don'].max()*1.01], tickformat=",.0f"),
-                        hovermode="x unified", dragmode=False
+                        dragmode=False, hovermode="x" # "x unified"보다 모바일 리소스를 적게 먹고 스크롤 간섭이 적음
                         )
     st.plotly_chart(fig_g, 
                     use_container_width=True, 
                     config={
                         'displayModeBar': False, 
-                        'scrollZoom': False, 
-                        'staticPlot': False,    # 툴팁(금액 확인) 기능을 활성화
-                        'displaylogo': False,
-                        # 모바일 터치 간섭을 최소화하기 위해 '드래그' 관련 상호작용 제거
-                        'modeBarButtonsToRemove': ['pan2d', 'zoom2d', 'select2d', 'lasso2d', 'zoomIn2d', 'zoomOut2d', 'autoScale2d']}
+                        'scrollZoom': False,
+                        'staticPlot': False,
+                        # 핵심: 차트 내부의 상호작용 요소를 제거하여 터치 이벤트를 브라우저에 양보
+                        'modeBarButtonsToRemove': ['pan2d', 'zoom2d', 'select2d', 'lasso2d']}
                    )
 
     st.divider()
@@ -126,16 +128,16 @@ if data is not None:
     fig_s.update_traces(line_color='#adb5bd') # 은색 선
     fig_s.update_layout(xaxis_title=None, yaxis_title=None, height=250, margin=dict(l=0,r=0,t=10,b=0),
                         yaxis=dict(range=[data['silver_don'].min()*0.98, data['silver_don'].max()*1.02], tickformat=",.0f"),
-                        hovermode="x unified", dragmode=False)
+                        dragmode=False, hovermode="x" # "x unified"보다 모바일 리소스를 적게 먹고 스크롤 간섭이 적음
+                        )
     st.plotly_chart(fig_s, 
                     use_container_width=True, 
                     config={
                         'displayModeBar': False, 
-                        'scrollZoom': False, 
-                        'staticPlot': False,    # 툴팁(금액 확인) 기능을 활성화
-                        'displaylogo': False,
-                        # 모바일 터치 간섭을 최소화하기 위해 '드래그' 관련 상호작용 제거
-                        'modeBarButtonsToRemove': ['pan2d', 'zoom2d', 'select2d', 'lasso2d', 'zoomIn2d', 'zoomOut2d', 'autoScale2d']}
+                        'scrollZoom': False,
+                        'staticPlot': False,
+                        # 핵심: 차트 내부의 상호작용 요소를 제거하여 터치 이벤트를 브라우저에 양보
+                        'modeBarButtonsToRemove': ['pan2d', 'zoom2d', 'select2d', 'lasso2d']}
                    )
 
 else:

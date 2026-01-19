@@ -16,7 +16,7 @@ st.markdown("""
     }
     
     /* 제목 및 텍스트 스타일 */
-    .gs-title { font-size: 20px; font-weight: 700; margin-top: 20px; margin-bottom: 20px; }
+    .gs-title { font-size: 30px; font-weight: 700; margin-top: 20px; margin-bottom: 20px; }
     .main-title { font-size: 20px; font-weight: 700; margin-top: 20px; margin-bottom: 10px; }
     .custom-container { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 15px; }
     .custom-item { flex: 1; background-color: #f8f9fa; padding: 10px 3px; border-radius: 10px; text-align: center; border-left: 4px solid #dee2e6; min-width: 0; }
@@ -82,7 +82,7 @@ def get_delta_html(curr_val, prev_val, is_currency=False):
 # 데이터 실행
 data = get_all_data()
 
-st.markdown('<p class="gs-title">💰 국제 금/은 시세 리포트</p>', unsafe_allow_html=True)
+st.markdown('<p class="gs-title">💰 국제 금/은 시세 리포트</p><p class="main-title"> by 제네바시계</p>', unsafe_allow_html=True)
 
 if data is not None:
     curr = data.iloc[-1]

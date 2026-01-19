@@ -58,8 +58,8 @@ try:
         fig, 
         use_container_width=True, 
         config={
+            'staticPlot': False,
             'displayModeBar': False,
-            'scrollZoom': False
         }
     )
 

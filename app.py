@@ -61,6 +61,8 @@ try:
             'staticPlot': False,
             'scrollZoom': False,
             'displayModeBar': False,
+            'doubleClick': 'reset',        # 더블클릭 시 리셋
+            'modeBarButtonsToRemove': ['pan2d', 'zoom2d', 'select2d', 'lasso2d'] # 이동/확대 도구 삭제
         }
     )
 

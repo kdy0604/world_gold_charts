@@ -100,7 +100,7 @@ if data is not None:
                         dragmode=False,         # 드래그 모드 해제
                         hovermode="x",          # 툴팁 반응 최적화
                         # 모바일에서 터치 시 즉각 응답하도록 설정
-                        margin=dict(l=0, r=0, t=10, b=0)
+                        # margin=dict(l=0, r=0, t=10, b=0)
                        )
     st.plotly_chart(fig_g, 
                     use_container_width=True, 
@@ -140,7 +140,7 @@ if data is not None:
                         dragmode=False,         # 드래그 모드 해제
                         hovermode="x",          # 툴팁 반응 최적화
                         # 모바일에서 터치 시 즉각 응답하도록 설정
-                        margin=dict(l=0, r=0, t=10, b=0)
+                        # margin=dict(l=0, r=0, t=10, b=0)
                        )
     st.plotly_chart(fig_s, 
                     use_container_width=True, 

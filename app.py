@@ -58,7 +58,7 @@ try:
         fig, 
         use_container_width=True, 
         config={
-            'displayModeBar': False
+            'displayModeBar': False,
             'scrollZoom': False
         }
     )

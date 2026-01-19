@@ -16,7 +16,7 @@ st.markdown("""
     }
     
     /* 제목 및 텍스트 스타일 */
-    .gs-title { font-size: 50px !important; font-weight: 700; margin-top: 20px; margin-bottom: 5px; }
+    .gs-title { font-size: 30px !important; font-weight: 700; margin-top: 20px; margin-bottom: 5px; }
     .geneva-title { font-size: 15px; font-weight: 700; margin-top: 20px; margin-bottom: 20px; padding-left: 30px; }
     .main-title { font-size: 20px; font-weight: 700; margin-top: 20px; margin-bottom: 10px; }
     .custom-container { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 15px; }

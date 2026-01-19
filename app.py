@@ -16,8 +16,8 @@ st.markdown("""
     }
     
     /* 제목 및 텍스트 스타일 */
-    .gs-title { font-size: 30px; font-weight: 700; margin-top: 20px; margin-bottom: 5px; }
-    .geneva-title { font-size: 20px; font-weight: 700; margin-top: 20px; margin-bottom: 20px; padding-left: 10px; }
+    .gs-title { font-size: 50px; font-weight: 700; margin-top: 20px; margin-bottom: 5px; }
+    .geneva-title { font-size: 15px; font-weight: 700; margin-top: 20px; margin-bottom: 20px; padding-left: 30px; }
     .main-title { font-size: 20px; font-weight: 700; margin-top: 20px; margin-bottom: 10px; }
     .custom-container { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 15px; }
     .custom-item { flex: 1; background-color: #f8f9fa; padding: 10px 3px; border-radius: 10px; text-align: center; border-left: 4px solid #dee2e6; min-width: 0; }

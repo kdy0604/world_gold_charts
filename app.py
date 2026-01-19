@@ -58,8 +58,10 @@ try:
                 <div class="value-text">{curr['ex']:.2f}원</div>
             </div>
         </div>
-        """, unsafe_allow_html=True)
-
+        """, unsafe_allow_html=True
+    )
+except Exception as e:
+    st.error("데이터 로딩 중...")
 
 @st.cache_data(ttl=1800)
 def get_gold_data():
@@ -101,8 +103,7 @@ try:
     )
     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 
-except Exception as e:
-    st.error("데이터 로딩 중...")
+
 except Exception as e:
     st.warning("데이터 로딩 중... 잠시 후 새로고침 하세요.")
 

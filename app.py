@@ -20,9 +20,14 @@ st.markdown("""
     .up { color: #d9534f; }
     .down { color: #0275d8; }
     .equal { color: #666; }
-    .stPlotlyChart {
-        touch-action: pan-y !important; /* 세로 스크롤(pan-y)을 차트가 아닌 브라우저가 처리하도록 강제 */
+    .stPlotlyChart > div [data-testid="stPlotlyChart"] {
+        touch-action: pan-y !important;
     }
+    
+    /* 차트 내부의 드래그 관련 마우스 커서를 강제로 기본값으로 변경 */
+    .js-plotly-plot .plotly .cursor-crosshair {
+        cursor: default !important;
+        }
     </style>
     """, unsafe_allow_html=True)
 
@@ -92,15 +97,19 @@ if data is not None:
     fig_g.update_traces(line_color='#f1c40f')
     fig_g.update_layout(xaxis_title=None, yaxis_title=None, height=250, margin=dict(l=0,r=0,t=10,b=0),
                         yaxis=dict(range=[data['gold_don'].min()*0.99, data['gold_don'].max()*1.01], tickformat=",.0f"),
-                        dragmode=False, hovermode="x")
+                        dragmode=False,         # 드래그 모드 해제
+                        hovermode="x",          # 툴팁 반응 최적화
+                        # 모바일에서 터치 시 즉각 응답하도록 설정
+                        margin=dict(l=0, r=0, t=10, b=0)
+                       )
     st.plotly_chart(fig_g, 
                     use_container_width=True, 
                     config={
                         'displayModeBar': False, 
                         'scrollZoom': False,
                         'staticPlot': False,
-                        # 핵심: 차트 내부의 상호작용 요소를 제거하여 터치 이벤트를 브라우저에 양보
-                        'modeBarButtonsToRemove': ['pan2d', 'zoom2d', 'select2d', 'lasso2d']}
+                        # 'editable': False 설정이 기본이지만 명시적으로 터치 이벤트 간섭 최소화
+                        'responsive': True}
                    )
 
     st.divider()
@@ -128,15 +137,19 @@ if data is not None:
     fig_s.update_traces(line_color='#adb5bd') # 은색 선
     fig_s.update_layout(xaxis_title=None, yaxis_title=None, height=250, margin=dict(l=0,r=0,t=10,b=0),
                         yaxis=dict(range=[data['silver_don'].min()*0.98, data['silver_don'].max()*1.02], tickformat=",.0f"),
-                        dragmode=False, hovermode="x")
+                        dragmode=False,         # 드래그 모드 해제
+                        hovermode="x",          # 툴팁 반응 최적화
+                        # 모바일에서 터치 시 즉각 응답하도록 설정
+                        margin=dict(l=0, r=0, t=10, b=0)
+                       )
     st.plotly_chart(fig_s, 
                     use_container_width=True, 
                     config={
                         'displayModeBar': False, 
                         'scrollZoom': False,
                         'staticPlot': False,
-                        # 핵심: 차트 내부의 상호작용 요소를 제거하여 터치 이벤트를 브라우저에 양보
-                        'modeBarButtonsToRemove': ['pan2d', 'zoom2d', 'select2d', 'lasso2d']}
+                        # 'editable': False 설정이 기본이지만 명시적으로 터치 이벤트 간섭 최소화
+                        'responsive': True}
                    )
 
 else:

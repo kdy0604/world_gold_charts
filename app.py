@@ -21,11 +21,13 @@ st.markdown("""
         white-space: nowrap !important;     /* 줄바꿈 금지 */
         overflow: hidden !important;        /* 넘치는 부분 숨김 */
         text-overflow: ellipsis !important; /* 혹시 넘치면 ... 표시 (안전장치) */
-        
         line-height: 1.2 !important;
         display: block !important;
         }
-    .geneva-title { font-size: 15px; font-weight: 700; margin-top: 20px; margin-bottom: 20px; padding-left: 30px; }
+    .geneva-title { font-size: 15px; font-weight: 700; margin-top: 20px; margin-bottom: 20px; padding-left: 30px;
+        text-align: right !important;      /* 텍스트를 오른쪽으로 */
+        padding-right: 20px !important;    /* 오른쪽 벽에서 살짝 띄움 */
+        }
     .main-title { font-size: 20px; font-weight: 700; margin-top: 20px; margin-bottom: 10px; }
     .custom-container { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 15px; }
     .custom-item { flex: 1; background-color: #f8f9fa; padding: 10px 3px; border-radius: 10px; text-align: center; border-left: 4px solid #dee2e6; min-width: 0; }

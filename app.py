@@ -54,7 +54,7 @@ def get_delta_html(curr_val, prev_val, is_currency=False):
 
 data = get_data()
 
-st.markdown('<p class="main-title">💰 금 국제 시세 리포트</p>', unsafe_allow_html=True)
+st.markdown('<p class="main-title">💰 국제 금 시세 리포트</p>', unsafe_allow_html=True)
 
 if data is not None:
     curr = data.iloc[-1]

@@ -91,8 +91,7 @@ if data is not None:
     fig_g.update_traces(line_color='#f1c40f')
     fig_g.update_layout(xaxis_title=None, yaxis_title=None, height=250, margin=dict(l=0,r=0,t=10,b=0),
                         yaxis=dict(range=[data['gold_don'].min()*0.99, data['gold_don'].max()*1.01], tickformat=",.0f"),
-                        dragmode=False, hovermode="x" # "x unified"보다 모바일 리소스를 적게 먹고 스크롤 간섭이 적음
-                        )
+                        dragmode=False, hovermode="x")
     st.plotly_chart(fig_g, 
                     use_container_width=True, 
                     config={
@@ -128,8 +127,7 @@ if data is not None:
     fig_s.update_traces(line_color='#adb5bd') # 은색 선
     fig_s.update_layout(xaxis_title=None, yaxis_title=None, height=250, margin=dict(l=0,r=0,t=10,b=0),
                         yaxis=dict(range=[data['silver_don'].min()*0.98, data['silver_don'].max()*1.02], tickformat=",.0f"),
-                        dragmode=False, hovermode="x" # "x unified"보다 모바일 리소스를 적게 먹고 스크롤 간섭이 적음
-                        )
+                        dragmode=False, hovermode="x")
     st.plotly_chart(fig_s, 
                     use_container_width=True, 
                     config={

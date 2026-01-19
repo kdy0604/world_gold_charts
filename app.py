@@ -88,8 +88,18 @@ if data is not None:
     fig_g.update_traces(line_color='#f1c40f')
     fig_g.update_layout(xaxis_title=None, yaxis_title=None, height=250, margin=dict(l=0,r=0,t=10,b=0),
                         yaxis=dict(range=[data['gold_don'].min()*0.99, data['gold_don'].max()*1.01], tickformat=",.0f"),
-                        hovermode="x unified", dragmode=False)
-    st.plotly_chart(fig_g, use_container_width=True, config={'displayModeBar': False, 'scrollZoom': False})
+                        hovermode="x unified", dragmode=False
+                        )
+    st.plotly_chart(fig_g, 
+                    use_container_width=True, 
+                    config={
+                        'displayModeBar': False, 
+                        'scrollZoom': False, 
+                        'staticPlot': False,    # 툴팁(금액 확인) 기능을 활성화
+                        'displaylogo': False,
+                        # 모바일 터치 간섭을 최소화하기 위해 '드래그' 관련 상호작용 제거
+                        'modeBarButtonsToRemove': ['pan2d', 'zoom2d', 'select2d', 'lasso2d', 'zoomIn2d', 'zoomOut2d', 'autoScale2d']}
+                   )
 
     st.divider()
 
@@ -117,7 +127,16 @@ if data is not None:
     fig_s.update_layout(xaxis_title=None, yaxis_title=None, height=250, margin=dict(l=0,r=0,t=10,b=0),
                         yaxis=dict(range=[data['silver_don'].min()*0.98, data['silver_don'].max()*1.02], tickformat=",.0f"),
                         hovermode="x unified", dragmode=False)
-    st.plotly_chart(fig_s, use_container_width=True, config={'displayModeBar': False, 'scrollZoom': False})
+    st.plotly_chart(fig_s, 
+                    use_container_width=True, 
+                    config={
+                        'displayModeBar': False, 
+                        'scrollZoom': False, 
+                        'staticPlot': False,    # 툴팁(금액 확인) 기능을 활성화
+                        'displaylogo': False,
+                        # 모바일 터치 간섭을 최소화하기 위해 '드래그' 관련 상호작용 제거
+                        'modeBarButtonsToRemove': ['pan2d', 'zoom2d', 'select2d', 'lasso2d', 'zoomIn2d', 'zoomOut2d', 'autoScale2d']}
+                   )
 
 else:
     st.error("데이터 로드 실패. 잠시 후 새로고침 해주세요.")

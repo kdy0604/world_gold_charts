@@ -103,8 +103,9 @@ try:
     
     except Exception as e:
         st.warning("데이터 로딩 중... 잠시 후 새로고침 하세요.")
-    except Exception as e:
-    st.error("데이터 로딩 중...")
+        
+except Exception as e:
+st.error("데이터 로딩 중...")
 
 
 

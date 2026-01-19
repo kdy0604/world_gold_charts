@@ -4,11 +4,18 @@ import pandas as pd
 import plotly.express as px
 
 # 1. 페이지 설정
-st.set_page_config(page_title="금/은 국제 시세 리포트", layout="centered")
+st.set_page_config(page_title="금/은 국제 시세", layout="centered")
 
-# CSS 디자인
+# CSS 수정: 전체 컨테이너에 강제 여백 부여
 st.markdown("""
     <style>
+    /* 전체 앱의 최대 너비를 제한하고 중앙 정렬하여 양옆 스크롤 여백 확보 */
+    .block-container {
+        max-width: 90% !important;
+        padding-left: 5% !important;
+        padding-right: 5% !important;
+    }
+    
     .main-title { font-size: 20px; font-weight: 700; margin-top: 20px; margin-bottom: 10px; }
     .custom-container { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 15px; }
     .custom-item { flex: 1; background-color: #f8f9fa; padding: 10px 3px; border-radius: 10px; text-align: center; border-left: 4px solid #dee2e6; min-width: 0; }
@@ -19,67 +26,20 @@ st.markdown("""
     .delta-text { font-size: 11px; font-weight: 600; margin-top: 2px; display: block; }
     .up { color: #d9534f; }
     .down { color: #0275d8; }
-    .equal { color: #666; }
-    .stPlotlyChart > div [data-testid="stPlotlyChart"] {
-        touch-action: pan-y !important;
-    }
     
-    /* 차트 내부의 드래그 관련 마우스 커서를 강제로 기본값으로 변경 */
-    .js-plotly-plot .plotly .cursor-crosshair {
-        cursor: default !important;
-        }
+    /* 차트 영역에서 터치 스크롤을 방해하지 않도록 설정 */
+    .stPlotlyChart { touch-action: pan-y !important; }
     </style>
     """, unsafe_allow_html=True)
 
-
-# 2. 데이터 불러오기 함수 (금, 은, 환율 통합)
-@st.cache_data(ttl=3600)
-def get_all_data():
-    try:
-        gold_t = yf.Ticker("GC=F")   # 금 선물
-        silver_t = yf.Ticker("SI=F") # 은 선물
-        ex_t = yf.Ticker("KRW=X")   # 환율
-        
-        g_h = gold_t.history(period="1mo")
-        s_h = silver_t.history(period="1mo")
-        e_h = ex_t.history(period="1mo")
-        
-        if g_h.empty or s_h.empty or e_h.empty: return None
-
-        df = pd.DataFrame({
-            'gold': g_h['Close'],
-            'silver': s_h['Close'],
-            'ex': e_h['Close']
-        }).ffill()
-        
-        # 1돈(3.75g) 환산 공식 적용
-        df['gold_don'] = (df['gold'] * df['ex']) / 31.1035 * 3.75
-        df['silver_don'] = (df['silver'] * df['ex']) / 31.1035 * 3.75
-        return df
-    except:
-        return None
-
-def get_delta_html(curr_val, prev_val, is_currency=False):
-    diff = curr_val - prev_val
-    if diff > 0:
-        v = f"{diff:.2f}" if is_currency else f"{int(diff):,}"
-        return f'<span class="delta-text up">▲ {v}</span>'
-    elif diff < 0:
-        v = f"{abs(diff):.2f}" if is_currency else f"{int(abs(diff)):,}"
-        return f'<span class="delta-text down">▼ {v}</span>'
-    else:
-        return '<span class="delta-text equal">- 0</span>'
-
-data = get_all_data()
+# ... (중략: 데이터 로드 및 델타 함수는 이전과 동일) ...
 
 if data is not None:
     curr = data.iloc[-1]
     prev = data.iloc[-2]
 
-    # --- 금(Gold) 섹션 ---
+    # 금 섹션
     st.markdown('<p class="main-title">🟡 국제 금 시세 (1돈)</p>', unsafe_allow_html=True)
-    
-    # 지표 박스 가로 배치
     st.markdown(f"""
         <div class="custom-container">
             <div class="custom-item gold-box">
@@ -95,22 +55,18 @@ if data is not None:
         </div>
         """, unsafe_allow_html=True)
     
-    # --- 금 차트 영역 (양옆 여백 추가) ---
-    col_l, col_m, col_r = st.columns([0.07, 0.86, 0.07]) # 양옆 7%씩 여백 생성
-    with col_m:
-        fig_g = px.line(data, y='gold_don')
-        fig_g.update_traces(line_color='#f1c40f')
-        fig_g.update_layout(xaxis_title=None, yaxis_title=None, height=250, margin=dict(l=0,r=0,t=10,b=0),
-                            yaxis=dict(range=[data['gold_don'].min()*0.99, data['gold_don'].max()*1.01], tickformat=",.0f"),
-                            hovermode="x unified", dragmode=False)
-        st.plotly_chart(fig_g, use_container_width=True, config={'displayModeBar': False, 'scrollZoom': False})
+    # 차트 출력 (columns 제거하고 바로 출력해도 CSS가 여백을 조절함)
+    fig_g = px.line(data, y='gold_don')
+    fig_g.update_traces(line_color='#f1c40f')
+    fig_g.update_layout(xaxis_title=None, yaxis_title=None, height=250, margin=dict(l=0,r=0,t=10,b=0),
+                        yaxis=dict(range=[data['gold_don'].min()*0.99, data['gold_don'].max()*1.01], tickformat=",.0f"),
+                        hovermode="x", dragmode=False)
+    st.plotly_chart(fig_g, use_container_width=True, config={'displayModeBar': False, 'scrollZoom': False})
 
     st.divider()
-    st.caption("공식: (국제시세 * 환율) / 31.1035 * 3.75")
 
-    # --- 은(Silver) 섹션 ---
+    # 은 섹션 (금과 동일한 방식으로 처리)
     st.markdown('<p class="main-title">⚪ 국제 은 시세 (1돈)</p>', unsafe_allow_html=True)
-    
     st.markdown(f"""
         <div class="custom-container">
             <div class="custom-item silver-box">
@@ -126,16 +82,9 @@ if data is not None:
         </div>
         """, unsafe_allow_html=True)
 
-    # --- 은 차트 영역 (양옆 여백 추가) ---
-    col_l2, col_m2, col_r2 = st.columns([0.07, 0.86, 0.07]) # 양옆 7%씩 여백 생성
-    with col_m2:
-        fig_s = px.line(data, y='silver_don')
-        fig_s.update_traces(line_color='#adb5bd')
-        fig_s.update_layout(xaxis_title=None, yaxis_title=None, height=250, margin=dict(l=0,r=0,t=10,b=0),
-                            yaxis=dict(range=[data['silver_don'].min()*0.98, data['silver_don'].max()*1.02], tickformat=",.0f"),
-                            hovermode="x unified", dragmode=False)
-        st.plotly_chart(fig_s, use_container_width=True, config={'displayModeBar': False, 'scrollZoom': False})
-
-else:
-    st.error("데이터 로드 실패")
-st.caption("공식: (국제시세 * 환율) / 31.1035 * 3.75")
+    fig_s = px.line(data, y='silver_don')
+    fig_s.update_traces(line_color='#adb5bd')
+    fig_s.update_layout(xaxis_title=None, yaxis_title=None, height=250, margin=dict(l=0,r=0,t=10,b=0),
+                        yaxis=dict(range=[data['silver_don'].min()*0.98, data['silver_don'].max()*1.02], tickformat=",.0f"),
+                        hovermode="x", dragmode=False)
+    st.plotly_chart(fig_s, use_container_width=True, config={'displayModeBar': False, 'scrollZoom': False})

@@ -59,6 +59,7 @@ try:
         use_container_width=True, 
         config={
             'staticPlot': False,
+            'scrollZoom': False,
             'displayModeBar': False,
         }
     )

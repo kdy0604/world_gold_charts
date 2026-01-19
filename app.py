@@ -78,6 +78,8 @@ if data is not None:
 
     # --- 금(Gold) 섹션 ---
     st.markdown('<p class="main-title">🟡 국제 금 시세 (1돈)</p>', unsafe_allow_html=True)
+    
+    # 지표 박스 가로 배치
     st.markdown(f"""
         <div class="custom-container">
             <div class="custom-item gold-box">
@@ -93,27 +95,22 @@ if data is not None:
         </div>
         """, unsafe_allow_html=True)
     
-    fig_g = px.line(data, y='gold_don')
-    fig_g.update_traces(line_color='#f1c40f')
-    fig_g.update_layout(xaxis_title=None, yaxis_title=None, height=250, margin=dict(l=0,r=0,t=10,b=0),
-                        yaxis=dict(range=[data['gold_don'].min()*0.99, data['gold_don'].max()*1.01], tickformat=",.0f"),
-                        dragmode=False,         # 드래그 모드 해제
-                        hovermode="x",          # 툴팁 반응 최적화
-                        # 모바일에서 터치 시 즉각 응답하도록 설정
-                        # margin=dict(l=0, r=0, t=10, b=0)
-                       )
-
-    col_left, col_main, col_right = st.columns([0.05, 0.9, 0.05])
-
-    with col_main:
-        st.plotly_chart(fig_g, use_container_width=True, config={'displayModeBar': False})
+    # --- 금 차트 영역 (양옆 여백 추가) ---
+    col_l, col_m, col_r = st.columns([0.07, 0.86, 0.07]) # 양옆 7%씩 여백 생성
+    with col_m:
+        fig_g = px.line(data, y='gold_don')
+        fig_g.update_traces(line_color='#f1c40f')
+        fig_g.update_layout(xaxis_title=None, yaxis_title=None, height=250, margin=dict(l=0,r=0,t=10,b=0),
+                            yaxis=dict(range=[data['gold_don'].min()*0.99, data['gold_don'].max()*1.01], tickformat=",.0f"),
+                            hovermode="x unified", dragmode=False)
+        st.plotly_chart(fig_g, use_container_width=True, config={'displayModeBar': False, 'scrollZoom': False})
 
     st.divider()
-
-    st.caption("공식: (국제금시세 * 환율) / 31.1035 * 3.75")
+    st.caption("공식: (국제시세 * 환율) / 31.1035 * 3.75")
 
     # --- 은(Silver) 섹션 ---
     st.markdown('<p class="main-title">⚪ 국제 은 시세 (1돈)</p>', unsafe_allow_html=True)
+    
     st.markdown(f"""
         <div class="custom-container">
             <div class="custom-item silver-box">
@@ -124,31 +121,21 @@ if data is not None:
             <div class="custom-item">
                 <div class="label-text">국제 은 ($/oz)</div>
                 <div class="value-text">${curr['silver']:.2f}</div>
-                <span class="delta-text">{get_delta_html(curr['silver'], prev['silver'], True)}</span>
+                {get_delta_html(curr['silver'], prev['silver'], True)}
             </div>
         </div>
         """, unsafe_allow_html=True)
 
-    fig_s = px.line(data, y='silver_don')
-    fig_s.update_traces(line_color='#adb5bd') # 은색 선
-    fig_s.update_layout(xaxis_title=None, yaxis_title=None, height=250, margin=dict(l=0,r=0,t=10,b=0),
-                        yaxis=dict(range=[data['silver_don'].min()*0.98, data['silver_don'].max()*1.02], tickformat=",.0f"),
-                        dragmode=False,         # 드래그 모드 해제
-                        hovermode="x",          # 툴팁 반응 최적화
-                        # 모바일에서 터치 시 즉각 응답하도록 설정
-                        # margin=dict(l=0, r=0, t=10, b=0)
-                       )
-    st.plotly_chart(fig_s, 
-                    use_container_width=True, 
-                    config={
-                        'displayModeBar': False, 
-                        'scrollZoom': False,
-                        'staticPlot': False,
-                        # 'editable': False 설정이 기본이지만 명시적으로 터치 이벤트 간섭 최소화
-                        'responsive': True}
-                   )
+    # --- 은 차트 영역 (양옆 여백 추가) ---
+    col_l2, col_m2, col_r2 = st.columns([0.07, 0.86, 0.07]) # 양옆 7%씩 여백 생성
+    with col_m2:
+        fig_s = px.line(data, y='silver_don')
+        fig_s.update_traces(line_color='#adb5bd')
+        fig_s.update_layout(xaxis_title=None, yaxis_title=None, height=250, margin=dict(l=0,r=0,t=10,b=0),
+                            yaxis=dict(range=[data['silver_don'].min()*0.98, data['silver_don'].max()*1.02], tickformat=",.0f"),
+                            hovermode="x unified", dragmode=False)
+        st.plotly_chart(fig_s, use_container_width=True, config={'displayModeBar': False, 'scrollZoom': False})
 
 else:
-    st.error("데이터 로드 실패. 잠시 후 새로고침 해주세요.")
-
+    st.error("데이터 로드 실패")
 st.caption("공식: (국제시세 * 환율) / 31.1035 * 3.75")

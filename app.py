@@ -52,7 +52,7 @@ try:
         yaxis=dict(range=[y_min, y_max], tickformat=",.0f"),
         margin=dict(l=0, r=0, t=10, b=0), # 차트 여백 최소화
         height=300, # 차트 높이 줄임
-        hovermode="x unified"
+        hovermode="x unified",
         dragmode=False,  # 차트 위에서 드래그(슬라이딩) 기능을 끔
     )
     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False}

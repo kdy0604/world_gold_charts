@@ -102,15 +102,11 @@ if data is not None:
                         # 모바일에서 터치 시 즉각 응답하도록 설정
                         # margin=dict(l=0, r=0, t=10, b=0)
                        )
-    st.plotly_chart(fig_g, 
-                    use_container_width=True, 
-                    config={
-                        'displayModeBar': False, 
-                        'scrollZoom': False,
-                        'staticPlot': False,
-                        # 'editable': False 설정이 기본이지만 명시적으로 터치 이벤트 간섭 최소화
-                        'responsive': True}
-                   )
+
+    col_left, col_main, col_right = st.columns([0.05, 0.9, 0.05])
+
+    with col_main:
+        st.plotly_chart(fig_g, use_container_width=True, config={'displayModeBar': False})
 
     st.divider()
 

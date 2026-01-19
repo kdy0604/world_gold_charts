@@ -16,7 +16,7 @@ st.markdown("""
     }
     
     /* 제목 및 텍스트 스타일 */
-    .gs-title { font-size: clamp(20px, 5vw, 30px) !important; 
+    .gs-title { font-size: clamp(20px, 10vw, 30px) !important; 
         font-weight: 700; margin-top: 20px; margin-bottom: 5px; 
         white-space: nowrap !important;     /* 줄바꿈 금지 */
         overflow: hidden !important;        /* 넘치는 부분 숨김 */

@@ -26,7 +26,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 유틸리티: 등락 표시 ---
+# --- 등락 표시 유틸리티 ---
 def get_delta_html(curr, prev, prefix=""):
     if prev == 0 or curr is None: return ""
     diff = curr - prev
@@ -35,7 +35,7 @@ def get_delta_html(curr, prev, prefix=""):
     sign = "▲" if diff >= 0 else "▼"
     return f'<span class="delta {color}">{sign} {prefix}{abs(diff):,.2f} ({pct:+.2f}%)</span>'
 
-# --- 유틸리티: 차트 레이아웃 ---
+# --- 차트 스타일 업데이트 ---
 def update_chart_style(fig, df, y_min, y_max, is_won=False, is_silver=False):
     fmt = ".1f" if is_silver else ".0f"
     fig.update_traces(
@@ -50,21 +50,25 @@ def update_chart_style(fig, df, y_min, y_max, is_won=False, is_silver=False):
     )
     return fig
 
-# --- 실시간 국내 금 시세 (ETF 기반 정확한 1돈 환산) ---
-def get_realtime_from_etf():
+# --- [핵심] ETF 등락률 기반 실시간 가격 예측 ---
+def get_estimated_realtime(krx_prev_close):
     try:
-        # TIGER 금현물(319660.KS) ETF 가격 수집
-        ticker = yf.Ticker("319660.KS")
-        price_etf = ticker.fast_info.last_price
+        ticker = yf.Ticker("319660.KS") # TIGER 금현물
+        hist = ticker.history(period="2d")
         
-        if price_etf > 0:
-            # TIGER 금현물 1주 가격은 대략 금 1g 가격과 같습니다.
-            # 1돈(3.75g) 가격 = ETF가격 * 3.75
-            realtime_don = price_etf * 3.75
-            return realtime_don, datetime.now(KST).strftime('%H:%M:%S')
-        return None, None
+        if len(hist) >= 2:
+            etf_prev_close = hist['Close'].iloc[-2]
+            etf_curr = ticker.fast_info.last_price
+            
+            # 1. ETF의 전일 대비 등락률 계산
+            change_rate = (etf_curr - etf_prev_close) / etf_prev_close
+            
+            # 2. KRX 어제 종가에 ETF 등락률 적용
+            predicted_price = krx_prev_close * (1 + change_rate)
+            return predicted_price, datetime.now(KST).strftime('%H:%M:%S'), change_rate
+        return None, None, None
     except:
-        return None, None
+        return None, None, None
 
 @st.cache_data(ttl=3600)
 def get_krx_data():
@@ -97,7 +101,12 @@ def get_intl_data():
 # 데이터 로드
 df_intl, intl_time = get_intl_data()
 df_krx, krx_last_date = get_krx_data()
-realtime_kr, etf_time = get_realtime_from_etf()
+
+# 실시간 예측 로직 실행
+realtime_kr = None
+etf_time = None
+if df_krx is not None:
+    realtime_kr, etf_time, _ = get_estimated_realtime(df_krx['종가'].iloc[-1])
 
 st.markdown('<p class="gs-title">📊 금/은 마켓 실시간 대시보드</p>', unsafe_allow_html=True)
 
@@ -117,13 +126,13 @@ if df_intl is not None:
         st.plotly_chart(update_chart_style(px.line(df_won, y='gold_don').update_traces(line_color='#f1c40f'), df_won, df_won['gold_don'].min()*0.99, df_won['gold_don'].max()*1.01, is_won=True), use_container_width=True, config={'displayModeBar': False})
 
 # --- [2] 국내 금 (KRX) ---
-st.markdown('<p class="main-title">🇰🇷 국내 금 시세 (실시간)</p>', unsafe_allow_html=True)
+st.markdown('<p class="main-title">🇰🇷 국내 금 시세 (실시간 예측)</p>', unsafe_allow_html=True)
 if df_krx is not None:
     k_curr, k_prev = df_krx['종가'].iloc[-1], df_krx['종가'].iloc[-2]
     disp_p = realtime_kr if realtime_kr else k_curr
-    st.markdown(f'<div class="price-box" style="margin-bottom:15px;"><span class="val-sub">{"실시간 추정가 (KRX ETF)" if realtime_kr else "마지막 종가"} (1돈)</span><span class="val-main" style="color:#d9534f;">{int(disp_p):,}원</span>{get_delta_html(disp_p, k_prev)}<span class="ref-time"><b>실시간 수집:</b> {etf_time if etf_time else "정보없음"}<br><b>차트기준:</b> {krx_last_date} 종가</span></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="price-box" style="margin-bottom:15px;"><span class="val-sub">{"실시간 예측가 (ETF 등락반영)" if realtime_kr else "마지막 종가"} (1돈)</span><span class="val-main" style="color:#d9534f;">{int(disp_p):,}원</span>{get_delta_html(disp_p, k_prev)}<span class="ref-time"><b>분석시간:</b> {etf_time if etf_time else "정보없음"}<br><b>기준:</b> KRX {krx_last_date} 종가 + ETF 등락률</span></div>', unsafe_allow_html=True)
     df_krx_won = df_krx[['종가']] / 10000
-    st.plotly_chart(update_chart_style(px.area(df_krx_won, y='종가').update_traces(line_color='#4361ee', fillcolor='rgba(67, 97, 238, 0.1)'), df_krx_won, df_krx_won['gauge_min' if False else '종가'].min()*0.98, df_krx_won['종가'].max()*1.02, is_won=True), use_container_width=True, config={'displayModeBar': False})
+    st.plotly_chart(update_chart_style(px.area(df_krx_won, y='종가').update_traces(line_color='#4361ee', fillcolor='rgba(67, 97, 238, 0.1)'), df_krx_won, df_krx_won['종가'].min()*0.98, df_krx_won['종가'].max()*1.02, is_won=True), use_container_width=True, config={'displayModeBar': False})
 
 # --- [3] 국제 은 ---
 if df_intl is not None:

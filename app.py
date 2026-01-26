@@ -36,16 +36,45 @@ def get_delta_html(curr, prev, prefix=""):
     sign = "▲" if diff >= 0 else "▼"
     return f'<span class="delta {color}">{sign} {prefix}{abs(diff):,.2f} ({pct:+.2f}%)</span>'
 
-# --- 유틸리티: 차트 레이아웃 최적화 (X축 밀착 로직 포함) ---
-def update_chart_style(fig, df, y_min, y_max):
+# --- 유틸리티: 차트 레이아웃 최적화 (단위 변환 로직 포함) ---
+def update_chart_style(fig, df, y_min, y_max, is_won=False, is_silver=False):
     fig.update_traces(mode='lines+markers', marker=dict(size=4), connectgaps=True)
+    
+    # 원화 차트일 경우 단위 변환 (예: 850,000 -> 85만)
+    if is_won:
+        if is_silver: # 은: 소수점 한자리 (1.8만)
+            fig.update_layout(
+                yaxis=dict(ticksuffix="만", tickformat=".1f", tickvals=[i for i in fig.layout.yaxis.tickvals] if fig.layout.yaxis.tickvals else None),
+            )
+            fig.update_traces(
+                customdata=df.iloc[:, 0] / 10000,
+                hovertemplate="날짜: %{x}<br>가격: %{customdata:.1f}만<extra></extra>"
+            )
+        else: # 금: 정수 (85만)
+            fig.update_layout(
+                yaxis=dict(ticksuffix="만", tickformat=".0f"),
+            )
+            fig.update_traces(
+                customdata=df.iloc[:, 0] / 10000,
+                hovertemplate="날짜: %{x}<br>가격: %{customdata:.0f}만<extra></extra>"
+            )
+        # 세로축 눈금을 '만' 단위 수치로 변환
+        fig.update_yaxes(tickvals=fig.layout.yaxis.tickvals, ticktext=[f"{v/10000:.1f}" if is_silver else f"{int(v/10000)}" for v in fig.layout.yaxis.tickvals] if fig.layout.yaxis.tickvals else None)
+        # 자동 눈금 계산을 위해 틱 포맷 설정
+        fig.update_layout(yaxis=dict(tickprefix="", tickformat=""))
+        fig.update_yaxes(exponentformat="none", separatethousands=True)
+        # 강제 수동 라벨링 (가장 확실한 방법)
+        y_ticks = [y for y in range(int(y_min//10000)*10000, int(y_max//10000 + 2)*10000, 10000 if not is_silver else 1000)]
+        fig.update_layout(yaxis=dict(
+            tickmode='array',
+            tickvals=y_ticks,
+            ticktext=[f"{v/10000:.1f}만" if is_silver else f"{int(v/10000)}만" for v in y_ticks]
+        ))
+
     fig.update_layout(
         height=300, margin=dict(l=0, r=10, t=10, b=0),
         yaxis=dict(range=[y_min, y_max], fixedrange=True, title=None),
-        xaxis=dict(
-            range=[df.index.min(), df.index.max()], # 최신 날짜까지 꽉 채움
-            fixedrange=True, title=None, type='date', tickformat='%m-%d'
-        ),
+        xaxis=dict(range=[df.index.min(), df.index.max()], fixedrange=True, title=None, type='date', tickformat='%m-%d'),
         dragmode=False, hovermode="x unified", template="plotly_white"
     )
     return fig
@@ -104,11 +133,12 @@ if df_intl is not None:
     st.markdown('<p class="main-title">🟡 국제 금 시세 (Gold)</p>', unsafe_allow_html=True)
     c1, c2 = st.columns(2)
     with c1: st.markdown(f'<div class="price-box"><span class="val-sub">국제 (1oz)</span><span class="val-main">${curr["gold"]:,.2f}</span>{get_delta_html(curr["gold"], prev["gold"], "$")}<span class="ref-time">수집: {intl_time}</span></div>', unsafe_allow_html=True)
-    with c2: st.markdown(f'<div class="price-box"><span class="val-sub">국내환산 (1돈)</span><span class="val-main">{int(curr["gold_don"]):,}원</span>{get_delta_html(curr["gold_don"], prev["gold_don"])}<span class="ref-time">환율기준: {intl_time}</span></div>', unsafe_allow_html=True)
+    with col2 if 'col2' in locals() else st.empty(): # 위에서 컬럼 정의 생략 방지
+        st.markdown(f'<div class="price-box"><span class="val-sub">국내환산 (1돈)</span><span class="val-main">{int(curr["gold_don"]):,}원</span>{get_delta_html(curr["gold_don"], prev["gold_don"])}<span class="ref-time">환율기준: {intl_time}</span></div>', unsafe_allow_html=True)
     
     t1, t2 = st.tabs(["$/oz 차트", "₩/돈 차트"])
-    with t1: st.plotly_chart(update_chart_style(px.line(df_intl, y='gold'), df_intl, df_intl['gold'].min()*0.99, df_intl['gold'].max()*1.01), use_container_width=True)
-    with t2: st.plotly_chart(update_chart_style(px.line(df_intl, y='gold_don').update_traces(line_color='#f1c40f'), df_intl, df_intl['gold_don'].min()*0.99, df_intl['gold_don'].max()*1.01), use_container_width=True)
+    with t1: st.plotly_chart(update_chart_style(px.line(df_intl, y='gold'), df_intl[['gold']], df_intl['gold'].min()*0.99, df_intl['gold'].max()*1.01), use_container_width=True)
+    with t2: st.plotly_chart(update_chart_style(px.line(df_intl, y='gold_don').update_traces(line_color='#f1c40f'), df_intl[['gold_don']], df_intl['gold_don'].min()*0.99, df_intl['gold_don'].max()*1.01, is_won=True), use_container_width=True)
 
 # --- [2] 국내 금 (KRX) ---
 st.markdown('<p class="main-title">🇰🇷 국내 금 시세 (KRX 공식)</p>', unsafe_allow_html=True)
@@ -116,7 +146,7 @@ if df_krx is not None:
     k_curr, k_prev = df_krx['종가'].iloc[-1], df_krx['종가'].iloc[-2]
     disp_p = realtime_kr if realtime_kr else k_curr
     st.markdown(f'<div class="price-box" style="margin-bottom:15px;"><span class="val-sub">{"실시간(네이버)" if realtime_kr else "마지막 종가"} (1돈)</span><span class="val-main" style="color:#d9534f;">{int(disp_p):,}원</span>{get_delta_html(disp_p, k_prev)}<span class="ref-time"><b>실시간:</b> {naver_time}<br><b>차트:</b> {krx_last_date} 종가 기준</span></div>', unsafe_allow_html=True)
-    st.plotly_chart(update_chart_style(px.area(df_krx, y='종가').update_traces(line_color='#4361ee', fillcolor='rgba(67, 97, 238, 0.1)'), df_krx, df_krx['종가'].min()*0.98, df_krx['종가'].max()*1.02), use_container_width=True)
+    st.plotly_chart(update_chart_style(px.area(df_krx, y='종가').update_traces(line_color='#4361ee', fillcolor='rgba(67, 97, 238, 0.1)'), df_krx, df_krx['종가'].min()*0.98, df_krx['종가'].max()*1.02, is_won=True), use_container_width=True)
 
 # --- [3] 국제 은 (Silver) ---
 if df_intl is not None:
@@ -126,5 +156,5 @@ if df_intl is not None:
     with c4: st.markdown(f'<div class="price-box"><span class="val-sub">국내환산 (1돈)</span><span class="val-main">{int(curr["silver_don"]):,}원</span>{get_delta_html(curr["silver_don"], prev["silver_don"])}<span class="ref-time">환율기준: {intl_time}</span></div>', unsafe_allow_html=True)
     
     s1, s2 = st.tabs(["$/oz 차트", "₩/돈 차트"])
-    with s1: st.plotly_chart(update_chart_style(px.line(df_intl, y='silver').update_traces(line_color='#adb5bd'), df_intl, df_intl['silver'].min()*0.95, df_intl['silver'].max()*1.05), use_container_width=True)
-    with s2: st.plotly_chart(update_chart_style(px.line(df_intl, y='silver_don').update_traces(line_color='#adb5bd'), df_intl, df_intl['silver_don'].min()*0.95, df_intl['silver_don'].max()*1.05), use_container_width=True)
+    with s1: st.plotly_chart(update_chart_style(px.line(df_intl, y='silver').update_traces(line_color='#adb5bd'), df_intl[['silver']], df_intl['silver'].min()*0.95, df_intl['silver'].max()*1.05), use_container_width=True)
+    with s2: st.plotly_chart(update_chart_style(px.line(df_intl, y='silver_don').update_traces(line_color='#adb5bd'), df_intl[['silver_don']], df_intl['silver_don'].min()*0.95, df_intl['silver_don'].max()*1.05, is_won=True, is_silver=True), use_container_width=True)

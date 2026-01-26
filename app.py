@@ -2,6 +2,9 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import plotly.express as px
+import requests
+from bs4 import BeautifulSoup
+from datetime import datetime
 
 # 1. 페이지 설정 및 모바일 강제 여백 CSS
 st.set_page_config(page_title="금/은 국제 시세", layout="centered")
@@ -50,9 +53,39 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 2. 데이터 불러오기 함수 (금, 은, 환율)
+# 2. 네이버 금융 데이터 파싱 함수
+def get_naver_data():
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    try:
+        # 환율 파싱
+        ex_url = "https://finance.naver.com/marketindex/"
+        ex_res = requests.get(ex_url, headers=headers)
+        ex_soup = BeautifulSoup(ex_res.text, 'html.parser')
+        exchange_rate = float(ex_soup.select_one(".usd .value").text.replace(',', ''))
+        
+        # 국제 금 파싱
+        gold_url = "https://finance.naver.com/marketindex/worldGoldDetail.naver?marketindexCd=CMDT_GC"
+        gold_res = requests.get(gold_url, headers=headers)
+        gold_soup = BeautifulSoup(gold_res.text, 'html.parser')
+        intl_gold = float(gold_soup.select_one(".no_today .no_up .value").text.replace(',', ''))
+        
+        # 국제 은 파싱
+        silver_url = "https://finance.naver.com/marketindex/worldSilverDetail.naver?marketindexCd=CMDT_SI"
+        silver_res = requests.get(silver_url, headers=headers)
+        silver_soup = BeautifulSoup(silver_res.text, 'html.parser')
+        intl_silver = float(silver_soup.select_one(".no_today .no_up .value").text.replace(',', ''))
+        
+        return {
+            'ex': exchange_rate,
+            'gold': intl_gold,
+            'silver': intl_silver
+        }
+    except:
+        return None
+
+# 3. 차트용 데이터 (yfinance 유지 - 1개월 추이용)
 @st.cache_data(ttl=3600)
-def get_all_data():
+def get_chart_data():
     try:
         gold_t = yf.Ticker("GC=F")
         silver_t = yf.Ticker("SI=F")
@@ -62,23 +95,19 @@ def get_all_data():
         s_h = silver_t.history(period="1mo")
         e_h = ex_t.history(period="1mo")
         
-        if g_h.empty or s_h.empty or e_h.empty:
-            return None
-
         df = pd.DataFrame({
             'gold': g_h['Close'],
             'silver': s_h['Close'],
             'ex': e_h['Close']
         }).ffill()
         
-        # 1돈(3.75g) 환산 공식
         df['gold_don'] = (df['gold'] * df['ex']) / 31.1035 * 3.75
         df['silver_don'] = (df['silver'] * df['ex']) / 31.1035 * 3.75
         return df
     except:
         return None
 
-# 전날 대비 등락 표시 함수
+# 등락 표시 함수
 def get_delta_html(curr_val, prev_val, is_currency=False):
     diff = curr_val - prev_val
     if diff > 0:
@@ -90,15 +119,20 @@ def get_delta_html(curr_val, prev_val, is_currency=False):
     else:
         return '<span class="delta-text equal">- 0</span>'
 
-# 데이터 실행
-data = get_all_data()
+# 실행
+naver_curr = get_naver_data()
+chart_df = get_chart_data()
 
 st.markdown('<p class="gs-title">💰 국제 금/은 시세 리포트</p>', unsafe_allow_html=True)
-st.markdown('<p class="geneva-title">   by 제네바시계</p>', unsafe_allow_html=True)
+st.markdown('<p class="geneva-title">by 제네바시계</p>', unsafe_allow_html=True)
 
-if data is not None:
-    curr = data.iloc[-1]
-    prev = data.iloc[-2]
+if naver_curr and chart_df is not None:
+    # 현재가는 네이버 실시간 파싱 정보 사용
+    # 전날 대비 등락 계산을 위해 chart_df의 마지막에서 두번째 행 사용
+    prev = chart_df.iloc[-2]
+    
+    curr_gold_don = (naver_curr['gold'] * naver_curr['ex']) / 31.1035 * 3.75
+    curr_silver_don = (naver_curr['silver'] * naver_curr['ex']) / 31.1035 * 3.75
 
     # --- 금(Gold) 섹션 ---
     st.markdown('<p class="main-title">🟡 국제 금 시세 (1돈)</p>', unsafe_allow_html=True)
@@ -106,22 +140,22 @@ if data is not None:
         <div class="custom-container">
             <div class="custom-item gold-box">
                 <div class="label-text">금 1돈 (3.75g)</div>
-                <div class="value-text">{int(curr['gold_don']):,}원</div>
-                {get_delta_html(curr['gold_don'], prev['gold_don'])}
+                <div class="value-text">{int(curr_gold_don):,}원</div>
+                {get_delta_html(curr_gold_don, prev['gold_don'])}
             </div>
             <div class="custom-item">
                 <div class="label-text">현재 달러 환율</div>
-                <div class="value-text">{curr['ex']:.2f}원</div>
-                {get_delta_html(curr['ex'], prev['ex'], True)}
+                <div class="value-text">{naver_curr['ex']:.2f}원</div>
+                {get_delta_html(naver_curr['ex'], prev['ex'], True)}
             </div>
         </div>
         """, unsafe_allow_html=True)
     
-    fig_g = px.line(data, y='gold_don')
+    fig_g = px.line(chart_df, y='gold_don')
     fig_g.update_traces(line_color='#f1c40f')
     fig_g.update_layout(
         xaxis_title=None, yaxis_title=None, height=250, margin=dict(l=0,r=0,t=10,b=0),
-        yaxis=dict(range=[data['gold_don'].min()*0.995, data['gold_don'].max()*1.005], tickformat=",.0f"),
+        yaxis=dict(range=[chart_df['gold_don'].min()*0.995, chart_df['gold_don'].max()*1.005], tickformat=",.0f"),
         hovermode="x", dragmode=False
     )
     st.plotly_chart(fig_g, use_container_width=True, config={'displayModeBar': False, 'scrollZoom': False})
@@ -135,27 +169,27 @@ if data is not None:
         <div class="custom-container">
             <div class="custom-item silver-box">
                 <div class="label-text">은 1돈 (3.75g)</div>
-                <div class="value-text">{int(curr['silver_don']):,}원</div>
-                {get_delta_html(curr['silver_don'], prev['silver_don'])}
+                <div class="value-text">{int(curr_silver_don):,}원</div>
+                {get_delta_html(curr_silver_don, prev['silver_don'])}
             </div>
             <div class="custom-item">
                 <div class="label-text">국제 은 ($/oz)</div>
-                <div class="value-text">${curr['silver']:.2f}</div>
-                {get_delta_html(curr['silver'], prev['silver'], True)}
+                <div class="value-text">${naver_curr['silver']:.2f}</div>
+                {get_delta_html(naver_curr['silver'], prev['silver'], True)}
             </div>
         </div>
         """, unsafe_allow_html=True)
 
-    fig_s = px.line(data, y='silver_don')
+    fig_s = px.line(chart_df, y='silver_don')
     fig_s.update_traces(line_color='#adb5bd')
     fig_s.update_layout(
         xaxis_title=None, yaxis_title=None, height=250, margin=dict(l=0,r=0,t=10,b=0),
-        yaxis=dict(range=[data['silver_don'].min()*0.98, data['silver_don'].max()*1.02], tickformat=",.0f"),
+        yaxis=dict(range=[chart_df['silver_don'].min()*0.98, chart_df['silver_don'].max()*1.02], tickformat=",.0f"),
         hovermode="x", dragmode=False
     )
     st.plotly_chart(fig_s, use_container_width=True, config={'displayModeBar': False, 'scrollZoom': False})
 
 else:
-    st.error("데이터 로드 실패. Yahoo Finance 서버 차단일 수 있으니 15분 후 시도하세요.")
+    st.error("데이터 로드 실패. 서버 연결 상태를 확인해주세요.")
 
 st.caption("공식: (국제시세 * 환율) / 31.1035 * 3.75")

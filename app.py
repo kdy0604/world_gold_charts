@@ -54,7 +54,7 @@ def get_market_data():
 def get_krx_data():
     try:
         # 공공데이터포털 KRX 금시세 API
-        url = "https://apis.data.go.kr/1160100/service/GetGeneralProductInfoService/getGoldPriceInfo"
+        url = "https://apis.data.go.kr/1160100/service/GetGeneralProductInfoService"
         params = {'serviceKey': "ca42a8df54920a2536a7e5c4efe6594b2265a445a39ebc36244d108c5ae9e87a", 'numOfRows': '45', 'resultType': 'xml'}
         res = requests.get(url, params=params, timeout=10)
         root = ET.fromstring(res.text)

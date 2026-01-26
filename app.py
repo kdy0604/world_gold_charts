@@ -5,8 +5,8 @@ import plotly.express as px
 import requests
 from bs4 import BeautifulSoup
 
-# 1. 페이지 설정
-st.set_page_config(page_title="금/은 국제 시세", layout="centered")
+# 1. 페이지 설정 및 CSS (디자인 유지)
+st.set_page_config(page_title="국내 KRX 금 시세", layout="centered")
 
 st.markdown("""
     <style>
@@ -27,35 +27,34 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 2. 보강된 네이버 파싱 함수
-def get_naver_data():
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Referer': 'https://finance.naver.com/'
-    }
+# 2. 금시세닷컴 기반 KRX 금 및 환율 파싱
+def get_krx_data():
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36'}
     try:
-        ex_res = requests.get("https://finance.naver.com/marketindex/", headers=headers, timeout=5)
-        ex_soup = BeautifulSoup(ex_res.text, 'html.parser')
-        ex_rate = float(ex_soup.select_one(".usd .value").text.replace(',', ''))
+        # 금시세닷컴 접속 (국내 금 및 환율 정보 포함)
+        url = "https://sise.gold-sise.com/"
+        res = requests.get(url, headers=headers, timeout=5)
+        soup = BeautifulSoup(res.text, 'html.parser')
+
+        # KRX 금 1g 가격 파싱 (사이트 구조에 맞게 설정)
+        # 보통 첫 번째 나오는 '순금' 혹은 'KRX금' 항목을 찾습니다.
+        krx_1g = soup.select_one(".price_box .price").text.replace(',', '').replace('원', '')
         
-        g_url = "https://finance.naver.com/marketindex/worldGoldDetail.naver?marketindexCd=CMDT_GC"
-        g_res = requests.get(g_url, headers=headers, timeout=5)
-        g_soup = BeautifulSoup(g_res.text, 'html.parser')
-        gold = float(g_soup.select_one(".no_today .value").text.replace(',', ''))
+        # 환율 정보 파싱
+        ex_rate = soup.select_one(".exchange_box .price").text.replace(',', '').replace('원', '')
         
-        s_url = "https://finance.naver.com/marketindex/worldSilverDetail.naver?marketindexCd=CMDT_SI"
-        s_res = requests.get(s_url, headers=headers, timeout=5)
-        s_soup = BeautifulSoup(s_res.text, 'html.parser')
-        silver = float(s_soup.select_one(".no_today .value").text.replace(',', ''))
-        
-        return {'ex': ex_rate, 'gold': gold, 'silver': silver}
+        return {
+            'krx_gold_1g': float(krx_1g),
+            'ex': float(ex_rate)
+        }
     except:
         return None
 
-# 3. 통합 데이터 로드 (네이버 실패 시 야후로 대체)
+# 3. 차트 및 데이터 로드 로직
 @st.cache_data(ttl=600)
-def load_all_combined_data():
-    source_name = "Naver Finance (실시간)"
+def load_data():
+    source = "KRX 실시간 시세 (금시세닷컴)"
+    # 차트 데이터는 추세 확인용으로 야후 유지
     try:
         g = yf.Ticker("GC=F").history(period="1mo")
         s = yf.Ticker("SI=F").history(period="1mo")
@@ -66,17 +65,22 @@ def load_all_combined_data():
     except:
         return None, None, None
 
-    current = get_naver_data()
-    if not current:
-        last = chart_df.iloc[-1]
-        current = {'ex': last['ex'], 'gold': last['gold'], 'silver': last['silver']}
-        source_name = "Yahoo Finance (지연 데이터)"
+    # 실시간 데이터 가져오기 시도
+    realtime = get_krx_data()
     
-    return current, chart_df, source_name
+    if not realtime:
+        # 파싱 실패 시 야후 데이터로 대체
+        last = chart_df.iloc[-1]
+        # 야후 국제금 -> 1g 환산 (국제가는 oz당 달러이므로 환산 필요)
+        gold_1g = (last['gold'] * last['ex']) / 31.1035
+        realtime = {'krx_gold_1g': gold_1g, 'ex': last['ex']}
+        source = "Yahoo Finance (네트워크 백업)"
+    
+    return realtime, chart_df, source
 
 def get_delta_html(curr, prev, is_currency=False):
     diff = curr - prev
-    if abs(diff) < 0.001: return '<span class="delta-text equal">- 0</span>'
+    if abs(diff) < 0.1: return '<span class="delta-text equal">- 0</span>'
     if diff > 0:
         v = f"{diff:.2f}" if is_currency else f"{int(diff):,}"
         return f'<span class="delta-text up">▲ {v}</span>'
@@ -84,19 +88,35 @@ def get_delta_html(curr, prev, is_currency=False):
     return f'<span class="delta-text down">▼ {v}</span>'
 
 # 실행
-curr_data, chart_df, current_source = load_all_combined_data()
+curr_data, chart_df, current_source = load_data()
 
-st.markdown('<p class="gs-title">💰 국제 금/은 시세 리포트</p>', unsafe_allow_html=True)
+st.markdown('<p class="gs-title">💰 국내 KRX 금/은 시세 리포트</p>', unsafe_allow_html=True)
 st.markdown('<p class="geneva-title">by 제네바시계</p>', unsafe_allow_html=True)
 
 if curr_data and chart_df is not None:
     prev = chart_df.iloc[-2]
-    c_gold_don = (curr_data['gold'] * curr_data['ex']) / 31.1035 * 3.75
-    c_silver_don = (curr_data['silver'] * curr_data['ex']) / 31.1035 * 3.75
+    
+    # KRX 금 1돈 가격 계산
+    c_gold_don = curr_data['krx_gold_1g'] * 3.75
+    # 은은 KRX 시장 데이터가 제한적이므로 야후 환산값 유지
+    c_silver_don = (chart_df.iloc[-1]['silver'] * curr_data['ex']) / 31.1035 * 3.75
 
-    # 금 섹션
-    st.markdown('<p class="main-title">🟡 국제 금 시세 (1돈)</p>', unsafe_allow_html=True)
-    st.markdown(f'<div class="custom-container"><div class="custom-item gold-box"><div class="label-text">금 1돈 (3.75g)</div><div class="value-text">{int(c_gold_don):,}원</div>{get_delta_html(c_gold_don, prev["gold_don"])}</div><div class="custom-item"><div class="label-text">현재 달러 환율</div><div class="value-text">{curr_data["ex"]:.2f}원</div>{get_delta_html(curr_data["ex"], prev["ex"], True)}</div></div>', unsafe_allow_html=True)
+    # --- 금(Gold) 섹션 ---
+    st.markdown('<p class="main-title">🟡 국내 KRX 금 시세 (1돈)</p>', unsafe_allow_html=True)
+    st.markdown(f"""
+        <div class="custom-container">
+            <div class="custom-item gold-box">
+                <div class="label-text">KRX 금 1돈 (3.75g)</div>
+                <div class="value-text">{int(c_gold_don):,}원</div>
+                {get_delta_html(c_gold_don, prev['gold_don'])}
+            </div>
+            <div class="custom-item">
+                <div class="label-text">현재 달러 환율</div>
+                <div class="value-text">{curr_data['ex']:.2f}원</div>
+                {get_delta_html(curr_data['ex'], prev['ex'], True)}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
     
     fig_g = px.line(chart_df, y='gold_don')
     fig_g.update_traces(line_color='#f1c40f')
@@ -105,18 +125,28 @@ if curr_data and chart_df is not None:
 
     st.divider()
 
-    # 은 섹션
+    # --- 은(Silver) 섹션 ---
     st.markdown('<p class="main-title">⚪ 국제 은 시세 (1돈)</p>', unsafe_allow_html=True)
-    st.markdown(f'<div class="custom-container"><div class="custom-item silver-box"><div class="label-text">은 1돈 (3.75g)</div><div class="value-text">{int(c_silver_don):,}원</div>{get_delta_html(c_silver_don, prev["silver_don"])}</div><div class="custom-item"><div class="label-text">국제 은 ($/oz)</div><div class="value-text">${curr_data["silver"]:.2f}</div>{get_delta_html(curr_data["silver"], prev["silver"], True)}</div></div>', unsafe_allow_html=True)
+    st.markdown(f"""
+        <div class="custom-container">
+            <div class="custom-item silver-box">
+                <div class="label-text">은 1돈 (3.75g)</div>
+                <div class="value-text">{int(c_silver_don):,}원</div>
+                {get_delta_html(c_silver_don, prev['silver_don'])}
+            </div>
+            <div class="custom-item">
+                <div class="label-text">국제 은 시산 ($)</div>
+                <div class="value-text">${chart_df.iloc[-1]['silver']:.2f}</div>
+                {get_delta_html(chart_df.iloc[-1]['silver'], prev['silver'], True)}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
     fig_s = px.line(chart_df, y='silver_don')
     fig_s.update_traces(line_color='#adb5bd')
     fig_s.update_layout(xaxis_title=None, yaxis_title=None, height=250, margin=dict(l=0,r=0,t=10,b=0), yaxis=dict(tickformat=",.0f"), hovermode="x", dragmode=False)
     st.plotly_chart(fig_s, use_container_width=True, config={'displayModeBar': False})
 
-    # 데이터 소스 표기
     st.markdown(f'<p class="source-label">Data Source: {current_source}</p>', unsafe_allow_html=True)
 else:
-    st.error("금융 서버에 접속할 수 없습니다. 잠시 후 다시 시도해 주세요.")
-
-st.caption("공식: (국제시세 * 환율) / 31.1035 * 3.75")
+    st.error("데이터 연결에 실패했습니다.")

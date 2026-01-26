@@ -53,17 +53,40 @@ def update_chart_style(fig, df, y_min, y_max, is_won=False, is_silver=False):
 
 # --- [스크래핑] 네이버 실시간 국내 금 현재가 ---
 def get_naver_realtime():
+    """차단 우회를 위해 헤더를 보강한 실시간 시세 수집 함수"""
     try:
         url = "https://finance.naver.com/marketindex/goldDetail.naver"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        res = requests.get(url, headers=headers, timeout=5)
-        soup = BeautifulSoup(res.text, 'html.parser')
-        price_tag = soup.select_one("div.day_data p.no_today em span.blind")
-        if price_tag:
-            price_1g = float(price_tag.text.replace(',', ''))
-            return price_1g * 3.75, datetime.now(KST).strftime('%H:%M:%S')
+        # 실제 브라우저처럼 보이도록 헤더 보강
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+            'Referer': 'https://finance.naver.com/marketindex/',
+            'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7'
+        }
+        
+        # 세션을 사용하여 연결 안정성 확보
+        session = requests.Session()
+        res = session.get(url, headers=headers, timeout=10)
+        
+        if res.status_code == 200:
+            soup = BeautifulSoup(res.text, 'html.parser')
+            # 네이버는 실시간 가격을 'no_today' 클래스 내 blind 스팬에 숨겨둡니다.
+            price_tag = soup.select_one("div.day_data p.no_today em span.blind")
+            
+            if price_tag:
+                price_str = price_tag.text.replace(',', '').strip()
+                price_1g = float(price_str)
+                return price_1g * 3.75, datetime.now(KST).strftime('%H:%M:%S')
+            else:
+                # 위 태그가 없을 경우를 대비한 2차 시도 (다른 레이아웃)
+                alt_tag = soup.select_one("#now_value")
+                if alt_tag:
+                    return float(alt_tag.text.replace(',', '')) * 3.75, datetime.now(KST).strftime('%H:%M:%S')
+        
         return None, None
-    except: return None, None
+    except Exception as e:
+        # 에러 발생 시 로그 확인용 (Streamlit Cloud 로그에서 확인 가능)
+        st.sidebar.error(f"실시간 수집 실패: {e}")
+        return None, None
 
 @st.cache_data(ttl=3600)
 def get_krx_data():

@@ -38,19 +38,23 @@ def get_delta_html(curr, prev, prefix=""):
 
 # --- 유틸리티: 차트 레이아웃 최적화 ---
 def update_chart_style(fig, df, y_min, y_max, is_won=False, is_silver=False):
-    # 만 단위 변환 로직 (데이터 자체를 나누기 10000)
-    fmt = ".1f" if is_silver else ".0f"
-    
+    # 만 단위 변환 로직 및 툴팁 버그 수정
+    # %{y:.1f}만 또는 %{y:.0f}만 형식으로 직접 지정
+    if is_won:
+        custom_hover = "날짜: %{x}<br>가격: %{y:.1f}만<extra></extra>" if is_silver else "날짜: %{x}<br>가격: %{y:.0f}만<extra></extra>"
+    else:
+        custom_hover = "날짜: %{x}<br>가격: %{y:,.2f}<extra></extra>"
+
     fig.update_traces(
         mode='lines+markers', 
         marker=dict(size=4), 
         connectgaps=True,
-        hovertemplate="날짜: %{x}<br>가격: %{y}" + f"{fmt}만<extra></extra>" if is_won else None
+        hovertemplate=custom_hover
     )
     
     fig.update_layout(
         height=300, 
-        margin=dict(l=0, r=20, t=10, b=0), # 우측 여백 확보
+        margin=dict(l=0, r=20, t=10, b=0), # 우측 여백 확보하여 마지막 데이터 표시 개선
         yaxis=dict(
             range=[y_min, y_max], 
             fixedrange=True, 
@@ -71,11 +75,14 @@ def update_chart_style(fig, df, y_min, y_max, is_won=False, is_silver=False):
 def get_naver_realtime():
     try:
         url = "https://finance.naver.com/marketindex/goldDetail.naver"
-        headers = {'User-Agent': 'Mozilla/5.0'}
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'}
         res = requests.get(url, headers=headers, timeout=5)
         soup = BeautifulSoup(res.text, 'html.parser')
-        price_1g = soup.select_one("div.day_data p.no_today em span.blind").text
-        return float(price_1g.replace(',', '')) * 3.75, datetime.now(KST).strftime('%H:%M:%S')
+        price_tag = soup.select_one("div.day_data p.no_today em span.blind")
+        if price_tag:
+            price_1g = float(price_tag.text.replace(',', ''))
+            return price_1g * 3.75, datetime.now(KST).strftime('%H:%M:%S')
+        return None, None
     except: return None, None
 
 @st.cache_data(ttl=3600)
@@ -134,7 +141,7 @@ st.markdown('<p class="main-title">🇰🇷 국내 금 시세 (KRX 공식)</p>',
 if df_krx is not None:
     k_curr, k_prev = df_krx['종가'].iloc[-1], df_krx['종가'].iloc[-2]
     disp_p = realtime_kr if realtime_kr else k_curr
-    st.markdown(f'<div class="price-box" style="margin-bottom:15px;"><span class="val-sub">{"실시간(네이버)" if realtime_kr else "마지막 종가"} (1돈)</span><span class="val-main" style="color:#d9534f;">{int(disp_p):,}원</span>{get_delta_html(disp_p, k_prev)}<span class="ref-time"><b>실시간:</b> {naver_time}<br><b>차트:</b> {krx_last_date} 종가 기준</span></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="price-box" style="margin-bottom:15px;"><span class="val-sub">{"실시간(네이버)" if realtime_kr else "마지막 종가"} (1돈)</span><span class="val-main" style="color:#d9534f;">{int(disp_p):,}원</span>{get_delta_html(disp_p, k_prev)}<span class="ref-time"><b>실시간:</b> {naver_time if naver_time else "연결지연"}<br><b>차트:</b> {krx_last_date} 종가 기준</span></div>', unsafe_allow_html=True)
     df_krx_won = df_krx[['종가']] / 10000
     st.plotly_chart(update_chart_style(px.area(df_krx_won, y='종가').update_traces(line_color='#4361ee', fillcolor='rgba(67, 97, 238, 0.1)'), df_krx_won, df_krx_won['종가'].min()*0.98, df_krx_won['종가'].max()*1.02, is_won=True), use_container_width=True, config={'displayModeBar': False})
 

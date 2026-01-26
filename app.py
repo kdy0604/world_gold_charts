@@ -42,7 +42,6 @@ def format_delta(curr, prev, is_fx=False):
 @st.cache_data(ttl=3600)
 def get_intl_market_data():
     try:
-        # 야후 파이낸스 일별 데이터 (3개월)
         tickers = ["GC=F", "SI=F", "KRW=X"]
         df = yf.download(tickers, period="3mo", interval="1d", progress=False)['Close']
         df = df.rename(columns={"GC=F": "gold", "SI=F": "silver", "KRW=X": "ex"}).ffill().dropna()
@@ -51,38 +50,40 @@ def get_intl_market_data():
         return df
     except: return None
 
-# 4. 데이터 로드: 국내 KRX (에러 방어 로직 강화)
+# 4. 데이터 로드: 국내 KRX (파싱 로직 대폭 강화)
 @st.cache_data(ttl=3600)
 def get_krx_gold_data():
-    # 질문하신 엔드포인트와 기능명을 정확히 결합
     url = "https://apis.data.go.kr/1160100/service/GetGeneralProductInfoService/getGoldPriceInfo"
-    # 실제 공공데이터포털에서 권장하는 파라미터 구성
     params = {
         'serviceKey': "ca42a8df54920a2536a7e5c4efe6594b2265a445a39ebc36244d108c5ae9e87a",
-        'numOfRows': '60',
-        'resultType': 'xml',
-        'pageNo': '1'
+        'numOfRows': '45',
+        'resultType': 'xml'
     }
     try:
         response = requests.get(url, params=params, timeout=15)
-        if response.status_code != 200: return None
-        
-        root = ET.fromstring(response.text)
+        # XML 구조를 더 유연하게 탐색하기 위해 모든 item 태그를 찾음
+        root = ET.fromstring(response.content)
         items = root.findall('.//item')
-        if not items: return None
         
         data_list = []
         for item in items:
-            try:
-                # 종가(clpr)가 'g' 단위 시세이므로 3.75를 곱해 1돈으로 환산
-                price = float(item.find('clpr').text) * 3.75
-                date = pd.to_datetime(item.find('basDt').text)
-                change_rt = float(item.find('flctRt').text or 0)
-                data_list.append({'날짜': date, '종가': price, '등락률': change_rt})
-            except: continue
+            # 개별 요소 추출 (텍스트 존재 여부 확인)
+            d_val = item.findtext('basDt')
+            p_val = item.findtext('clpr')
+            r_val = item.findtext('flctRt') or "0"
             
+            if d_val and p_val:
+                data_list.append({
+                    '날짜': pd.to_datetime(d_val),
+                    '종가': float(p_val) * 3.75,
+                    '등락률': float(r_val)
+                })
+        
+        if not data_list: return None
         return pd.DataFrame(data_list).sort_values('날짜')
-    except: return None
+    except Exception as e:
+        print(f"KRX 로딩 에러: {e}")
+        return None
 
 # 데이터 호출
 df_intl = get_intl_market_data()
@@ -94,7 +95,6 @@ st.markdown('<p class="gs-title">📊 금/은 마켓 실시간 대시보드</p>'
 if df_intl is not None and not df_intl.empty:
     curr, prev = df_intl.iloc[-1], df_intl.iloc[-2]
     
-    # [요청사항] 국제 금 차트 위 환율 정보
     st.markdown(f"""
         <div class="fx-container">
             <span class="fx-label">현재 원/달러 환율 (USD/KRW)</span>
@@ -113,8 +113,7 @@ if df_intl is not None and not df_intl.empty:
         </div>
     """, unsafe_allow_html=True)
     
-    # 국제 금 차트 (Y축 최적화)
-    y_min, y_max = df_intl['gold_don'].min() * 0.985, df_intl['gold_don'].max() * 1.015
+    y_min, y_max = df_intl['gold_don'].min() * 0.99, df_intl['gold_don'].max() * 1.01
     fig_g = px.line(df_intl, y='gold_don', template="plotly_white")
     fig_g.update_layout(height=280, margin=dict(l=0,r=0,t=10,b=0), yaxis=dict(range=[y_min, y_max], autorange=False), xaxis_title=None, yaxis_title=None)
     fig_g.update_traces(line_color='#f1c40f', line_width=3)
@@ -132,14 +131,14 @@ if df_krx is not None and not df_krx.empty:
         </div>
     """, unsafe_allow_html=True)
     
-    # 국내 금 차트 (Y축 최적화)
     yk_min, yk_max = df_krx['종가'].min() * 0.99, df_krx['종가'].max() * 1.01
     fig_k = px.area(df_krx, x='날짜', y='종가', template="plotly_white")
     fig_k.update_layout(height=280, margin=dict(l=0,r=0,t=10,b=0), yaxis=dict(range=[yk_min, yk_max], autorange=False), xaxis_title=None, yaxis_title=None)
     fig_k.update_traces(line_color='#4361ee', fillcolor='rgba(67, 97, 238, 0.1)')
     st.plotly_chart(fig_k, use_container_width=True)
 else:
-    st.info("국내 데이터를 연동 중입니다. 잠시만 기다려 주세요.")
+    # 데이터가 없을 경우 에러 메시지 대신 안내 표시
+    st.warning("국내(KRX) 데이터를 불러올 수 없습니다. API 키가 활성화되었는지 또는 점검 중인지 확인이 필요합니다.")
 
 # --- 섹션 3: 국제 은 ---
 st.markdown('<p class="main-title">⚪ 국제 은 시세 (Silver)</p>', unsafe_allow_html=True)
@@ -152,7 +151,6 @@ if df_intl is not None and not df_intl.empty:
         </div>
     """, unsafe_allow_html=True)
     
-    # 은 차트 (Y축 최적화)
     ys_min, ys_max = df_intl['silver_don'].min() * 0.96, df_intl['silver_don'].max() * 1.04
     fig_s = px.line(df_intl, y='silver_don', template="plotly_white")
     fig_s.update_layout(height=280, margin=dict(l=0,r=0,t=10,b=0), yaxis=dict(range=[ys_min, ys_max], autorange=False), xaxis_title=None, yaxis_title=None)

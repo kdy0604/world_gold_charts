@@ -7,7 +7,7 @@ import xml.etree.ElementTree as ET
 from urllib.parse import unquote
 from datetime import datetime
 import pytz
-from bs4 import BeautifulSoup
+from pykrx import stock  # pykrx 추가
 
 # 1. 페이지 설정 및 스타일
 st.set_page_config(page_title="제네바시계 마켓 대시보드", layout="centered")
@@ -43,20 +43,25 @@ def update_chart_layout(fig, y_min, y_max):
         dragmode=False, hovermode="x unified", template="plotly_white")
     return fig
 
-# --- 데이터 파싱: 네이버 실시간 국내 금 ---
-def get_naver_realtime():
+# --- [NEW] pykrx를 이용한 국내 금 실시간 시세 ---
+def get_krx_realtime_pykrx():
     try:
-        url = "https://finance.naver.com/marketindex/goldDetail.naver"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        res = requests.get(url, headers=headers, timeout=5)
-        soup = BeautifulSoup(res.text, 'html.parser')
-        price_1g = soup.select_one("div.day_data p.no_today em span.blind").text
-        return float(price_1g.replace(',', '')) * 3.75
-    except: return None
+        # KRX 금 시장의 종목코드 'KM'은 금 99.99K 1g을 의미함
+        now_str = datetime.now(KST).strftime("%Y%m%d")
+        # 최근 1일치 시세를 가져와 마지막 체결가 반환
+        df = stock.get_market_ohlcv(now_str, now_str, "KGS00C003001", market="GOLD") # 금 99.99_1kg 종목코드
+        if df.empty:
+            # 장 전이거나 휴일이면 마지막 영업일 데이터 가져오기
+            df = stock.get_market_ohlcv("20250101", now_str, "KGS00C003001", market="GOLD")
+        
+        last_price_1g = df['종가'].iloc[-1]
+        return float(last_price_1g) * 3.75 # 1돈 환산
+    except:
+        return None
 
-# --- 데이터 로드: 국내 금 (공공데이터) ---
+# --- 데이터 로드: 국내 금 이력 (공공데이터) ---
 @st.cache_data(ttl=3600)
-def get_krx_data():
+def get_krx_history_data():
     url = "https://apis.data.go.kr/1160100/service/GetGeneralProductInfoService/getGoldPriceInfo"
     raw_key = "ca42a8df54920a2536a7e5c4efe6594b2265a445a39ebc36244d108c5ae9e87a"
     try:
@@ -69,7 +74,7 @@ def get_krx_data():
         return pd.DataFrame(data_list).drop_duplicates('날짜').set_index('날짜').sort_index()
     except: return None
 
-# --- 데이터 로드: 국제 금/은/환율 ---
+# --- 데이터 로드: 국제 금/은/환율 (Yahoo Finance) ---
 @st.cache_data(ttl=120)
 def get_intl_data():
     try:
@@ -85,8 +90,8 @@ def get_intl_data():
 
 # 데이터 호출
 df_intl, intl_time = get_intl_data()
-df_krx = get_krx_data()
-realtime_kr = get_naver_realtime()
+df_history = get_krx_history_data() # 공공데이터 이력
+realtime_kr = get_krx_realtime_pykrx() # pykrx 실시간
 
 st.markdown('<p class="gs-title">📊 금/은 마켓 실시간 대시보드</p>', unsafe_allow_html=True)
 
@@ -104,7 +109,7 @@ if df_intl is not None:
         </div>
     """, unsafe_allow_html=True)
 
-    # --- [1] 국제 금 시세 (Gold) ---
+    # --- [1] 국제 금 시세 ---
     st.markdown('<p class="main-title">🟡 국제 금 시세 (Gold)</p>', unsafe_allow_html=True)
     col1, col2 = st.columns(2)
     with col1: st.markdown(f'<div class="price-box"><span class="val-sub">국제 (1oz)</span><span class="val-main">${curr["gold"]:,.2f}</span>{get_delta_html(curr["gold"], prev["gold"], "$")}</div>', unsafe_allow_html=True)
@@ -116,20 +121,22 @@ if df_intl is not None:
 
 # --- [2] 국내 금 시세 (KRX) ---
 st.markdown('<p class="main-title">🇰🇷 국내 금 시세 (KRX 공식)</p>', unsafe_allow_html=True)
-if df_krx is not None:
-    k_curr, k_prev = df_krx['종가'].iloc[-1], df_krx['종가'].iloc[-2]
-    display_price = realtime_kr if realtime_kr else k_curr
+if df_history is not None:
+    h_curr, h_prev = df_history['종가'].iloc[-1], df_history['종가'].iloc[-2]
+    # pykrx 데이터가 있으면 우선 사용, 없으면 공공데이터 마지막 값 사용
+    display_price = realtime_kr if realtime_kr else h_curr
+    
     st.markdown(f"""
         <div class="price-box" style="margin-bottom:15px;">
-            <span class="val-sub">{"실시간 현재가" if realtime_kr else "마지막 종가"} (1돈 기준)</span>
+            <span class="val-sub">{"pykrx 실시간" if realtime_kr else "KRX 마지막 종가"} (1돈 기준)</span>
             <span class="val-main" style="color:#d9534f;">{int(display_price):,}원</span>
-            {get_delta_html(display_price, k_prev)}
-            <span class="ref-time">공식 데이터 기준: {df_krx.index[-1].strftime('%Y-%m-%d')}</span>
+            {get_delta_html(display_price, h_prev)}
+            <span class="ref-time">차트 데이터: 공공데이터포털 제공 ({df_history.index[-1].strftime('%Y-%m-%d')})</span>
         </div>
     """, unsafe_allow_html=True)
-    st.plotly_chart(update_chart_layout(px.area(df_krx, y='종가').update_traces(line_color='#4361ee', fillcolor='rgba(67, 97, 238, 0.1)'), df_krx['종가'].min()*0.98, df_krx['종가'].max()*1.02), use_container_width=True)
+    st.plotly_chart(update_chart_layout(px.area(df_history, y='종가').update_traces(line_color='#4361ee', fillcolor='rgba(67, 97, 238, 0.1)'), df_history['종가'].min()*0.98, df_history['종가'].max()*1.02), use_container_width=True)
 
-# --- [3] 국제 은 시세 (Silver) ---
+# --- [3] 국제 은 시세 ---
 if df_intl is not None:
     st.markdown('<p class="main-title">⚪ 국제 은 시세 (Silver)</p>', unsafe_allow_html=True)
     col3, col4 = st.columns(2)

@@ -23,36 +23,37 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 2. 등락 계산 함수 (상단 배치)
+# 2. 등락 금액 및 퍼센트 계산 함수
 def get_delta_html(curr, prev, is_currency=False):
     diff = curr - prev
-    if abs(diff) < 0.001: return '<span class="delta-text equal">- 0</span>'
-    if diff > 0:
-        v = f"{diff:.2f}" if is_currency else f"{int(diff):,}"
-        return f'<span class="delta-text up">▲ {v}</span>'
+    pct = (diff / prev) * 100 if prev != 0 else 0
+    
+    if abs(diff) < 0.001: 
+        return '<span class="delta-text equal">- 0 (0.00%)</span>'
+    
+    # 기호 설정
+    sign = "▲" if diff > 0 else "▼"
+    color_class = "up" if diff > 0 else "down"
+    
+    # 값 포맷팅 (달러나 환율은 소수점 표시, 원화는 정수 표시)
     v = f"{abs(diff):.2f}" if is_currency else f"{int(abs(diff)):,}"
-    return f'<span class="delta-text down">▼ {v}</span>'
+    
+    return f'<span class="delta-text {color_class}">{sign} {v} ({pct:+.2f}%)</span>'
 
-# 3. 데이터 로드 (yfinance 기반)
+# 3. 데이터 로드
 @st.cache_data(ttl=600)
 def load_international_data():
     try:
-        # GC=F(금 선물), SI=F(은 선물), KRW=X(원/달러 환율)
         g = yf.Ticker("GC=F").history(period="1mo")
         s = yf.Ticker("SI=F").history(period="1mo")
         e = yf.Ticker("KRW=X").history(period="1mo")
-        
         df = pd.DataFrame({'gold': g['Close'], 'silver': s['Close'], 'ex': e['Close']}).ffill()
-        
-        # 국제 시세 기반 1돈(3.75g) 환산 공식
         df['gold_don'] = (df['gold'] / 31.1035) * df['ex'] * 3.75
         df['silver_don'] = (df['silver'] / 31.1035) * df['ex'] * 3.75
-        
         return df
     except:
         return None
 
-# 데이터 실행
 data = load_international_data()
 
 st.markdown('<p class="gs-title">💰 국제 금/은 시세 리포트</p>', unsafe_allow_html=True)
@@ -63,7 +64,7 @@ if data is not None:
     prev = data.iloc[-2]
 
     # --- 금(Gold) 섹션 ---
-    st.markdown('<p class="main-title">🟡 국제 금 시세 (1돈 환산)</p>', unsafe_allow_html=True)
+    st.markdown('<p class="main-title">🟡 국제 금 시세</p>', unsafe_allow_html=True)
     st.markdown(f"""
         <div class="custom-container">
             <div class="custom-item gold-box">
@@ -84,17 +85,21 @@ if data is not None:
     fig_g.update_layout(xaxis_title=None, yaxis_title=None, height=220, margin=dict(l=0,r=0,t=10,b=0), yaxis=dict(tickformat=",.0f"), hovermode="x", dragmode=False)
     st.plotly_chart(fig_g, use_container_width=True, config={'displayModeBar': False})
 
-    # --- 환율 정보 ---
+    # --- 환율 정보 섹션 ---
     st.markdown(f"""
-        <div style="text-align: right; padding: 10px; background: #f8f9fa; border-radius: 8px; margin: 10px 0;">
-            <span style="font-size: 12px; color: #666;">기준 환율: <b>{curr['ex']:.2f}원</b></span>
+        <div class="custom-container">
+            <div class="custom-item" style="border-left: 4px solid #007bff;">
+                <div class="label-text">원/달러 환율</div>
+                <div class="value-text">{curr['ex']:.2f}원</div>
+                {get_delta_html(curr['ex'], prev['ex'], True)}
+            </div>
         </div>
     """, unsafe_allow_html=True)
 
     st.divider()
 
     # --- 은(Silver) 섹션 ---
-    st.markdown('<p class="main-title">⚪ 국제 은 시세 (1돈 환산)</p>', unsafe_allow_html=True)
+    st.markdown('<p class="main-title">⚪ 국제 은 시세</p>', unsafe_allow_html=True)
     st.markdown(f"""
         <div class="custom-container">
             <div class="custom-item silver-box">
@@ -115,6 +120,6 @@ if data is not None:
     fig_s.update_layout(xaxis_title=None, yaxis_title=None, height=220, margin=dict(l=0,r=0,t=10,b=0), yaxis=dict(tickformat=",.0f"), hovermode="x", dragmode=False)
     st.plotly_chart(fig_s, use_container_width=True, config={'displayModeBar': False})
 
-    st.caption("데이터 출처: Yahoo Finance (국제 선물 시세 기준)")
+    st.caption("데이터 출처: Yahoo Finance (전일 종가 대비 변동률)")
 else:
-    st.error("데이터 로드에 실패했습니다. 잠시 후 다시 시도해 주세요.")
+    st.error("데이터 로딩 실패")

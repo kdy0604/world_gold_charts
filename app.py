@@ -133,3 +133,43 @@ if df_intl is not None:
     with s2:
         df_sv_won = df_intl[['silver_don']] / 10000
         st.plotly_chart(update_chart_style(px.line(df_sv_won, y='silver_don').update_traces(line_color='#adb5bd'), df_sv_won, df_sv_won['silver_don'].min()*0.95, df_sv_won['silver_don'].max()*1.05, is_won=True, is_silver=True), use_container_width=True, config={'displayModeBar': False})
+
+# --- [추가] 네이버 JSON API를 활용한 실시간 금 시세 ---
+
+@st.cache_data(ttl=10)
+def fetch_realtime_gold_json():
+    # 네이버 모바일 금융 금현물(KRX금) 실시간 API
+    url = "https://m.stock.naver.com/api/marketindex/metals/KORSV/price"
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "application/json"
+    }
+    try:
+        resp = requests.get(url, headers=headers, timeout=5)
+        return resp.json()
+    except:
+        return None
+
+st.markdown('<p class="main-title">📍 현재 금 시세 (실시간 API)</p>', unsafe_allow_html=True)
+
+gold_json = fetch_realtime_gold_json()
+
+if gold_json:
+    # API 결과에서 현재가(1g당 가격) 추출 및 1돈(3.75g) 환산
+    price_1g = float(gold_json['closePrice'].replace(',', ''))
+    price_don_real = price_1g * 3.75
+    
+    # 전일 대비 등락 계산
+    change_val = float(gold_json['changePrice'].replace(',', '')) * 3.75
+    
+    st.markdown(f'''
+        <div class="price-box" style="width:100%; border-left: 5px solid #ff9f43; background-color: #fff9f2;">
+            <span class="val-sub">KRX 금현물 실시간 (1돈)</span>
+            <span class="val-main" style="color:#ff9f43; font-size:20px;">{int(price_don_real):,}원</span>
+            {get_delta_html(price_don_real, price_don_real - change_val)}
+        </div>
+        <p class="ref-time-integrated">데이터 출처: 네이버 API (실시간)</p>
+    ''', unsafe_allow_html=True)
+else:
+    st.error("실시간 API 데이터를 불러올 수 없습니다.")
+

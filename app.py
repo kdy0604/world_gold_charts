@@ -27,7 +27,6 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 2. 유틸리티: 등락 표시
 def format_delta(curr, prev, is_fx=False):
     if pd.isna(curr) or pd.isna(prev): return ""
     diff = curr - prev
@@ -38,7 +37,6 @@ def format_delta(curr, prev, is_fx=False):
         return f'<span class="{color}" style="font-size:15px; margin-left:10px;">{sign} {abs(diff):,.2f} ({pct:+.2f}%)</span>'
     return f'<span class="{color}" style="font-size:12px;">{sign} {abs(diff):,.2f} ({pct:+.2f}%)</span>'
 
-# 3. 데이터 로드: 국제 시세 및 환율
 @st.cache_data(ttl=3600)
 def get_intl_market_data():
     try:
@@ -50,42 +48,38 @@ def get_intl_market_data():
         return df
     except: return None
 
-# 4. 데이터 로드: 국내 KRX (파싱 로직 대폭 강화)
 @st.cache_data(ttl=3600)
 def get_krx_gold_data():
     url = "https://apis.data.go.kr/1160100/service/GetGeneralProductInfoService/getGoldPriceInfo"
     params = {
         'serviceKey': "ca42a8df54920a2536a7e5c4efe6594b2265a445a39ebc36244d108c5ae9e87a",
-        'numOfRows': '45',
+        'numOfRows': '100', # 넉넉하게 가져온 뒤 필터링
         'resultType': 'xml'
     }
     try:
         response = requests.get(url, params=params, timeout=15)
-        # XML 구조를 더 유연하게 탐색하기 위해 모든 item 태그를 찾음
         root = ET.fromstring(response.content)
         items = root.findall('.//item')
         
         data_list = []
         for item in items:
-            # 개별 요소 추출 (텍스트 존재 여부 확인)
-            d_val = item.findtext('basDt')
-            p_val = item.findtext('clpr')
-            r_val = item.findtext('flctRt') or "0"
-            
-            if d_val and p_val:
-                data_list.append({
-                    '날짜': pd.to_datetime(d_val),
-                    '종가': float(p_val) * 3.75,
-                    '등락률': float(r_val)
-                })
+            itms_nm = item.findtext('itmsNm') # 종목명 확인
+            # [중요] '금 99.99' 종목만 필터링하여 데이터 중복 방지
+            if itms_nm and "금 99.99" in itms_nm:
+                d_val = item.findtext('basDt')
+                p_val = item.findtext('clpr')
+                r_val = item.findtext('flctRt') or "0"
+                if d_val and p_val:
+                    data_list.append({
+                        '날짜': pd.to_datetime(d_val),
+                        '종가': float(p_val) * 3.75,
+                        '등락률': float(r_val)
+                    })
         
         if not data_list: return None
         return pd.DataFrame(data_list).sort_values('날짜')
-    except Exception as e:
-        print(f"KRX 로딩 에러: {e}")
-        return None
+    except: return None
 
-# 데이터 호출
 df_intl = get_intl_market_data()
 df_krx = get_krx_gold_data()
 
@@ -94,7 +88,6 @@ st.markdown('<p class="gs-title">📊 금/은 마켓 실시간 대시보드</p>'
 # --- 섹션 1: 환율 및 국제 금 ---
 if df_intl is not None and not df_intl.empty:
     curr, prev = df_intl.iloc[-1], df_intl.iloc[-2]
-    
     st.markdown(f"""
         <div class="fx-container">
             <span class="fx-label">현재 원/달러 환율 (USD/KRW)</span>
@@ -125,7 +118,7 @@ if df_krx is not None and not df_krx.empty:
     latest_k = df_krx.iloc[-1]
     st.markdown(f"""
         <div class="price-box" style="margin-bottom:15px;">
-            <span class="val-label">오늘의 KRX 종가 (1돈)</span>
+            <span class="val-label">KRX 종가 (금 99.99 기준 / 1돈)</span>
             <span class="val-main">{int(latest_k['종가']):,}원</span>
             <span class="{'up' if latest_k['등락률'] > 0 else 'down'}">{'▲' if latest_k['등락률'] > 0 else '▼'} {latest_k['등락률']}%</span>
         </div>
@@ -136,9 +129,6 @@ if df_krx is not None and not df_krx.empty:
     fig_k.update_layout(height=280, margin=dict(l=0,r=0,t=10,b=0), yaxis=dict(range=[yk_min, yk_max], autorange=False), xaxis_title=None, yaxis_title=None)
     fig_k.update_traces(line_color='#4361ee', fillcolor='rgba(67, 97, 238, 0.1)')
     st.plotly_chart(fig_k, use_container_width=True)
-else:
-    # 데이터가 없을 경우 에러 메시지 대신 안내 표시
-    st.warning("국내(KRX) 데이터를 불러올 수 없습니다. API 키가 활성화되었는지 또는 점검 중인지 확인이 필요합니다.")
 
 # --- 섹션 3: 국제 은 ---
 st.markdown('<p class="main-title">⚪ 국제 은 시세 (Silver)</p>', unsafe_allow_html=True)

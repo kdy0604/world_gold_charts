@@ -4,10 +4,12 @@ import pandas as pd
 import plotly.express as px
 import requests
 from bs4 import BeautifulSoup
+import re
 
-# 1. 페이지 설정 및 CSS (디자인 유지)
+# 1. 페이지 설정
 st.set_page_config(page_title="국내 KRX 금 시세", layout="centered")
 
+# CSS (디자인 유지)
 st.markdown("""
     <style>
     .block-container { max-width: 90% !important; padding-left: 5% !important; padding-right: 5% !important; }
@@ -27,126 +29,117 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 2. 금시세닷컴 기반 KRX 금 및 환율 파싱
-def get_krx_data():
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36'}
+# 2. 한국금거래소 실시간 시세 파싱
+def get_realtime_kr_data():
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'}
     try:
-        # 금시세닷컴 접속 (국내 금 및 환율 정보 포함)
-        url = "https://sise.gold-sise.com/"
-        res = requests.get(url, headers=headers, timeout=5)
+        # 한국금거래소 메인 페이지
+        url = "https://www.koreagoldx.co.kr/"
+        res = requests.get(url, headers=headers, timeout=7)
         soup = BeautifulSoup(res.text, 'html.parser')
 
-        # KRX 금 1g 가격 파싱 (사이트 구조에 맞게 설정)
-        # 보통 첫 번째 나오는 '순금' 혹은 'KRX금' 항목을 찾습니다.
-        krx_1g = soup.select_one(".price_box .price").text.replace(',', '').replace('원', '')
+        # KRX금 혹은 순금 시세 추출 (사이트 구조에 따라 다름)
+        # 텍스트 내에서 숫자만 추출하는 정규식 사용
+        gold_text = soup.find("dt", text=re.compile("KRX금")).find_next_sibling("dd").text
+        gold_price = float(re.sub(r'[^0-9.]', '', gold_text))
         
-        # 환율 정보 파싱
-        ex_rate = soup.select_one(".exchange_box .price").text.replace(',', '').replace('원', '')
-        
-        return {
-            'krx_gold_1g': float(krx_1g),
-            'ex': float(ex_rate)
-        }
+        # 환율 (야후에서 가져오는 게 가장 안정적이므로 환율은 야후 병행)
+        return {'krx_gold_1g': gold_price}
     except:
         return None
 
-# 3. 차트 및 데이터 로드 로직
+# 3. 데이터 로드 통합 함수
 @st.cache_data(ttl=600)
-def load_data():
-    source = "KRX 실시간 시세 (금시세닷컴)"
-    # 차트 데이터는 추세 확인용으로 야후 유지
+def load_all_data():
+    source = "한국금거래소 (KRX 실시간)"
+    
+    # 기본 야후 데이터 로드 (차트 및 백업용)
     try:
         g = yf.Ticker("GC=F").history(period="1mo")
-        s = yf.Ticker("SI=F").history(period="1mo")
         e = yf.Ticker("KRW=X").history(period="1mo")
+        s = yf.Ticker("SI=F").history(period="1mo")
         chart_df = pd.DataFrame({'gold': g['Close'], 'silver': s['Close'], 'ex': e['Close']}).ffill()
         chart_df['gold_don'] = (chart_df['gold'] * chart_df['ex']) / 31.1035 * 3.75
         chart_df['silver_don'] = (chart_df['silver'] * chart_df['ex']) / 31.1035 * 3.75
     except:
         return None, None, None
 
-    # 실시간 데이터 가져오기 시도
-    realtime = get_krx_data()
+    # 실시간 국내 시세 파싱 시도
+    realtime = get_realtime_kr_data()
     
-    if not realtime:
-        # 파싱 실패 시 야후 데이터로 대체
+    if realtime:
+        # 파싱 성공 시
+        kr_data = {
+            'gold_don': realtime['krx_gold_1g'] * 3.75,
+            'ex': chart_df.iloc[-1]['ex'],
+            'silver_don': chart_df.iloc[-1]['silver_don']
+        }
+    else:
+        # 파싱 실패 시 야후 데이터 사용
+        source = "Yahoo Finance (글로벌 환산)"
         last = chart_df.iloc[-1]
-        # 야후 국제금 -> 1g 환산 (국제가는 oz당 달러이므로 환산 필요)
-        gold_1g = (last['gold'] * last['ex']) / 31.1035
-        realtime = {'krx_gold_1g': gold_1g, 'ex': last['ex']}
-        source = "Yahoo Finance (네트워크 백업)"
-    
-    return realtime, chart_df, source
-
-def get_delta_html(curr, prev, is_currency=False):
-    diff = curr - prev
-    if abs(diff) < 0.1: return '<span class="delta-text equal">- 0</span>'
-    if diff > 0:
-        v = f"{diff:.2f}" if is_currency else f"{int(diff):,}"
-        return f'<span class="delta-text up">▲ {v}</span>'
-    v = f"{abs(diff):.2f}" if is_currency else f"{int(abs(diff)):,}"
-    return f'<span class="delta-text down">▼ {v}</span>'
+        kr_data = {
+            'gold_don': last['gold_don'],
+            'ex': last['ex'],
+            'silver_don': last['silver_don']
+        }
+        
+    return kr_data, chart_df, source
 
 # 실행
-curr_data, chart_df, current_source = load_data()
+curr, df, data_source = load_all_data()
 
 st.markdown('<p class="gs-title">💰 국내 KRX 금/은 시세 리포트</p>', unsafe_allow_html=True)
 st.markdown('<p class="geneva-title">by 제네바시계</p>', unsafe_allow_html=True)
 
-if curr_data and chart_df is not None:
-    prev = chart_df.iloc[-2]
-    
-    # KRX 금 1돈 가격 계산
-    c_gold_don = curr_data['krx_gold_1g'] * 3.75
-    # 은은 KRX 시장 데이터가 제한적이므로 야후 환산값 유지
-    c_silver_don = (chart_df.iloc[-1]['silver'] * curr_data['ex']) / 31.1035 * 3.75
+if curr and df is not None:
+    prev = df.iloc[-2]
 
-    # --- 금(Gold) 섹션 ---
+    # --- 금 섹션 ---
     st.markdown('<p class="main-title">🟡 국내 KRX 금 시세 (1돈)</p>', unsafe_allow_html=True)
     st.markdown(f"""
         <div class="custom-container">
             <div class="custom-item gold-box">
-                <div class="label-text">KRX 금 1돈 (3.75g)</div>
-                <div class="value-text">{int(c_gold_don):,}원</div>
-                {get_delta_html(c_gold_don, prev['gold_don'])}
+                <div class="label-text">KRX 금 1돈</div>
+                <div class="value-text">{int(curr['gold_don']):,}원</div>
+                {get_delta_html(curr['gold_don'], prev['gold_don'])}
             </div>
             <div class="custom-item">
                 <div class="label-text">현재 달러 환율</div>
-                <div class="value-text">{curr_data['ex']:.2f}원</div>
-                {get_delta_html(curr_data['ex'], prev['ex'], True)}
+                <div class="value-text">{curr['ex']:.2f}원</div>
+                {get_delta_html(curr['ex'], prev['ex'], True)}
             </div>
         </div>
-        """, unsafe_allow_html=True)
+    """, unsafe_allow_html=True)
     
-    fig_g = px.line(chart_df, y='gold_don')
+    fig_g = px.line(df, y='gold_don')
     fig_g.update_traces(line_color='#f1c40f')
     fig_g.update_layout(xaxis_title=None, yaxis_title=None, height=250, margin=dict(l=0,r=0,t=10,b=0), yaxis=dict(tickformat=",.0f"), hovermode="x", dragmode=False)
     st.plotly_chart(fig_g, use_container_width=True, config={'displayModeBar': False})
 
-    st.divider()
-
-    # --- 은(Silver) 섹션 ---
+    # --- 은 섹션 ---
     st.markdown('<p class="main-title">⚪ 국제 은 시세 (1돈)</p>', unsafe_allow_html=True)
+    # 은은 데이터 소스가 야후이므로 그대로 유지
     st.markdown(f"""
         <div class="custom-container">
             <div class="custom-item silver-box">
-                <div class="label-text">은 1돈 (3.75g)</div>
-                <div class="value-text">{int(c_silver_don):,}원</div>
-                {get_delta_html(c_silver_don, prev['silver_don'])}
+                <div class="label-text">은 1돈 (환산)</div>
+                <div class="value-text">{int(curr['silver_don']):,}원</div>
+                {get_delta_html(curr['silver_don'], prev['silver_don'])}
             </div>
             <div class="custom-item">
-                <div class="label-text">국제 은 시산 ($)</div>
-                <div class="value-text">${chart_df.iloc[-1]['silver']:.2f}</div>
-                {get_delta_html(chart_df.iloc[-1]['silver'], prev['silver'], True)}
+                <div class="label-text">국제 은 ($/oz)</div>
+                <div class="value-text">${df.iloc[-1]['silver']:.2f}</div>
+                {get_delta_html(df.iloc[-1]['silver'], prev['silver'], True)}
             </div>
         </div>
-        """, unsafe_allow_html=True)
+    """, unsafe_allow_html=True)
 
-    fig_s = px.line(chart_df, y='silver_don')
+    fig_s = px.line(df, y='silver_don')
     fig_s.update_traces(line_color='#adb5bd')
     fig_s.update_layout(xaxis_title=None, yaxis_title=None, height=250, margin=dict(l=0,r=0,t=10,b=0), yaxis=dict(tickformat=",.0f"), hovermode="x", dragmode=False)
     st.plotly_chart(fig_s, use_container_width=True, config={'displayModeBar': False})
 
-    st.markdown(f'<p class="source-label">Data Source: {current_source}</p>', unsafe_allow_html=True)
+    st.markdown(f'<p class="source-label">Data Source: {data_source}</p>', unsafe_allow_html=True)
 else:
-    st.error("데이터 연결에 실패했습니다.")
+    st.error("데이터 로드 중입니다...")

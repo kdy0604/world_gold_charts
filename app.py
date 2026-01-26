@@ -98,4 +98,20 @@ if naver and chart is not None:
     
     fig_g = px.line(chart, y='gold_don')
     fig_g.update_traces(line_color='#f1c40f')
-    fig_g.update_layout(xaxis_title=None, yaxis_title=None, height=250, margin
+    fig_g.update_layout(xaxis_title=None, yaxis_title=None, height=250, margin=dict(l=0,r=0,t=10,b=0), yaxis=dict(tickformat=",.0f"), hovermode="x", dragmode=False)
+    st.plotly_chart(fig_g, use_container_width=True, config={'displayModeBar': False})
+
+    st.divider()
+
+    # --- 은 섹션 ---
+    st.markdown('<p class="main-title">⚪ 국제 은 시세 (1돈)</p>', unsafe_allow_html=True)
+    st.markdown(f'<div class="custom-container"><div class="custom-item silver-box"><div class="label-text">은 1돈 (3.75g)</div><div class="value-text">{int(curr_s_don):,}원</div>{get_delta_html(curr_s_don, prev["silver_don"])}</div><div class="custom-item"><div class="label-text">국제 은 ($/oz)</div><div class="value-text">${naver["silver"]:.2f}</div>{get_delta_html(naver["silver"], prev["silver"], True)}</div></div>', unsafe_allow_html=True)
+
+    fig_s = px.line(chart, y='silver_don')
+    fig_s.update_traces(line_color='#adb5bd')
+    fig_s.update_layout(xaxis_title=None, yaxis_title=None, height=250, margin=dict(l=0,r=0,t=10,b=0), yaxis=dict(tickformat=",.0f"), hovermode="x", dragmode=False)
+    st.plotly_chart(fig_s, use_container_width=True, config={'displayModeBar': False})
+else:
+    st.warning("데이터를 불러오는 중입니다. 잠시만 기다려주시거나 새로고침 해주세요.")
+
+st.caption("데이터 출처: 네이버 증권 / 실시간 국제 시세")

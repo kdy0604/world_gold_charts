@@ -8,7 +8,7 @@ from datetime import datetime
 import pytz
 
 # 1. 페이지 설정 및 한국 시간 설정
-st.set_page_config(page_title="제네바시계 실시간 금융 대시보드", layout="centered")
+st.set_page_config(page_title="제네바시계 금융 대시보드", layout="centered")
 KST = pytz.timezone('Asia/Seoul')
 now_kst = datetime.now(KST)
 
@@ -24,15 +24,17 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 2. 데이터 처리 함수 (시간대 변환 포함)
-@st.cache_data(ttl=60)
-def get_intl_data(period="2d", interval="1m"):
+# 2. 데이터 처리 함수 (국제 10분 단위 / 국내 일별)
+@st.cache_data(ttl=600) # 10분 단위이므로 캐시 주기 조절
+def get_intl_data(period="5d", interval="10m"):
     tickers = ["GC=F", "SI=F", "KRW=X"]
     data = yf.download(tickers, period=period, interval=interval)['Close'].ffill()
     df = data.rename(columns={"GC=F": "gold", "SI=F": "silver", "KRW=X": "ex"})
     
-    # 시간대 변환: UTC -> KST
-    if interval == "1m":
+    # KST 시간 변환
+    if df.index.tz is None:
+        df.index = df.index.tz_localize('UTC').tz_convert('Asia/Seoul')
+    else:
         df.index = df.index.tz_convert('Asia/Seoul')
     
     df['gold_don'] = (df['gold'] / 31.1035) * df['ex'] * 3.75
@@ -43,31 +45,22 @@ def get_intl_data(period="2d", interval="1m"):
 def get_krx_data():
     service_key = "ca42a8df54920a2536a7e5c4efe6594b2265a445a39ebc36244d108c5ae9e87a"
     url = "https://apis.data.go.kr/1160100/service/GetGeneralProductInfoService/getGoldPriceInfo"
-    params = {'serviceKey': service_key, 'numOfRows': '40', 'resultType': 'xml'}
+    params = {'serviceKey': service_key, 'numOfRows': '30', 'resultType': 'xml'}
     try:
         res = requests.get(url, params=params, timeout=15)
         root = ET.fromstring(res.text)
         items = root.findall('.//item')
-        
         hist = []
         for item in items:
-            # KRX API 데이터 추출 (태그 존재 여부 확인)
-            bas_dt = item.find('basDt').text if item.find('basDt') is not None else None
             clpr = item.find('clpr').text if item.find('clpr') is not None else None
-            flct_rt = item.find('flctRt').text if item.find('flctRt') is not None else "0"
-            
-            if bas_dt and clpr:
+            if clpr:
                 hist.append({
-                    '날짜': pd.to_datetime(bas_dt), 
+                    '날짜': pd.to_datetime(item.find('basDt').text), 
                     '종가': float(clpr) * 3.75,
-                    '등락률': float(flct_rt)
+                    '등락률': float(item.find('flctRt').text if item.find('flctRt') is not None else 0)
                 })
-        
-        result_df = pd.DataFrame(hist).sort_values('날짜')
-        return result_df if not result_df.empty else None
-    except Exception as e:
-        st.error(f"국내 시세 로드 실패: {e}")
-        return None
+        return pd.DataFrame(hist).sort_values('날짜')
+    except: return None
 
 def format_delta(curr, prev):
     diff = curr - prev
@@ -76,21 +69,21 @@ def format_delta(curr, prev):
     sign = "▲" if diff > 0 else "▼"
     return f'<span class="{color}">{sign} {abs(diff):,.2f} ({pct:+.2f}%)</span>'
 
-# 상단 제목
-st.markdown(f'<p class="gs-title">📊 금/은 마켓 대시보드</p>', unsafe_allow_html=True)
-st.markdown(f'<p style="text-align:right; font-size:12px; color:#888;">업데이트: {now_kst.strftime("%Y-%m-%d %H:%M:%S")} (KST)</p>', unsafe_allow_html=True)
+# 상단 정보
+st.markdown('<p class="gs-title">📊 금/은 마켓 대시보드</p>', unsafe_allow_html=True)
+st.markdown(f'<p style="text-align:right; font-size:12px; color:#888;">조회 기준(KST): {now_kst.strftime("%Y-%m-%d %H:%M:%S")}</p>', unsafe_allow_html=True)
 
-# 데이터 로드
-df_rt = get_intl_data("2d", "1m")
+# 데이터 준비
+df_10m = get_intl_data("5d", "10m")
 df_daily = get_intl_data("1mo", "1d")
 df_krx = get_krx_data()
 
 # ---------------------------------------------------------
-# 1. 국제 금 시세 (GC=F)
+# 1. 국제 금 시세 (Gold)
 # ---------------------------------------------------------
 st.markdown('<p class="main-title">🟡 국제 금 시세 (Gold)</p>', unsafe_allow_html=True)
-if df_rt is not None:
-    c_rt, p_rt = df_rt.iloc[-1], df_rt.iloc[-2]
+if df_10m is not None:
+    c_rt, p_rt = df_10m.iloc[-1], df_10m.iloc[-2]
     c_da, p_da = df_daily.iloc[-1], df_daily.iloc[-2]
     
     st.markdown(f"""
@@ -98,79 +91,73 @@ if df_rt is not None:
             <div class="price-box">
                 <span class="val-label">국내 환산가 (1돈)</span>
                 <span class="val-main">{int(c_rt['gold_don']):,}원</span>
-                {format_delta(c_da['gold_don'], p_da['gold_don'])} <small>(전일대비)</small>
+                {format_delta(c_da['gold_don'], p_da['gold_don'])}
             </div>
             <div class="price-box">
                 <span class="val-label">국제 시세 (1oz)</span>
                 <span class="val-main">${c_rt['gold']:.2f}</span>
-                {format_delta(c_da['gold'], p_da['gold'])} <small>(전일대비)</small>
+                {format_delta(c_da['gold'], p_da['gold'])}
             </div>
         </div>
     """, unsafe_allow_html=True)
 
-    g_tab1, g_tab2 = st.tabs(["실시간(KST 분단위)", "한달(일단위)"])
+    g_tab1, g_tab2 = st.tabs(["실시간(10분 단위)", "한달(일단위)"])
     with g_tab1:
-        # 시간 형식 포맷팅 추가 (한국 시간 가독성)
-        chart_df = df_rt.tail(60).copy()
-        fig = px.line(chart_df, y='gold_don', template="plotly_white")
-        fig.update_traces(line_color='#f1c40f').update_layout(height=200, margin=dict(l=0,r=0,t=10,b=0), xaxis_title=None, yaxis_title=None)
+        # 최근 24시간 정도의 흐름 (10분 단위 144개 포인트)
+        fig = px.line(df_10m.tail(150), y='gold_don', template="plotly_white")
+        fig.update_traces(line_color='#f1c40f').update_layout(height=230, margin=dict(l=0,r=0,t=10,b=0), xaxis_title=None, yaxis_title=None, yaxis=dict(autorange=True, fixedrange=False))
         st.plotly_chart(fig, use_container_width=True)
     with g_tab2:
         fig = px.line(df_daily, y='gold_don')
-        fig.update_traces(line_color='#f1c40f').update_layout(height=200, margin=dict(l=0,r=0,t=10,b=0), xaxis_title=None, yaxis_title=None)
+        fig.update_traces(line_color='#f1c40f').update_layout(height=230, margin=dict(l=0,r=0,t=10,b=0), xaxis_title=None, yaxis_title=None, yaxis=dict(autorange=True, fixedrange=False))
         st.plotly_chart(fig, use_container_width=True)
 
 # ---------------------------------------------------------
-# 2. 국내 금 시세 (KRX 공식 종가)
+# 2. 국내 금 시세 (KRX 공식)
 # ---------------------------------------------------------
-st.markdown('<p class="main-title">🇰🇷 국내 금 시세 (KRX 공식)</p>', unsafe_allow_html=True)
-if df_krx is not None and not df_krx.empty:
+st.markdown('<p class="main-title">🇰🇷 국내 금 시세 (KRX 종가)</p>', unsafe_allow_html=True)
+if df_krx is not None:
     latest = df_krx.iloc[-1]
-    color = "up" if latest['등락률'] > 0 else "down"
-    sign = "▲" if latest['등락률'] > 0 else "▼"
-    
     st.markdown(f"""
         <div class="price-box" style="margin-bottom:15px;">
             <span class="val-label">KRX 금 시장 종가 (1돈 환산)</span>
             <span class="val-main">{int(latest['종가']):,}원</span>
-            <span class="{color}">{sign} {latest['등락률']}% (전일대비)</span>
+            <span class="{'up' if latest['등락률'] > 0 else 'down'}">{'▲' if latest['등락률'] > 0 else '▼'} {latest['등락률']}% (전일대비)</span>
         </div>
     """, unsafe_allow_html=True)
     
-    # 한달간 변동 차트
+    # Y축 최적화: autorange=True와 0 미포함 설정
     fig_krx = px.area(df_krx, x='날짜', y='종가', template="plotly_white")
     fig_krx.update_traces(line_color='#4361ee', fillcolor='rgba(67, 97, 238, 0.1)')
-    fig_krx.update_layout(height=250, margin=dict(l=0,r=0,t=10,b=0), xaxis_title=None, yaxis_title="원(KRW)")
+    fig_krx.update_layout(height=250, margin=dict(l=0,r=0,t=10,b=0), xaxis_title=None, yaxis_title=None, yaxis=dict(autorange=True, fixedrange=False))
     st.plotly_chart(fig_krx, use_container_width=True)
-else:
-    st.warning("국내 KRX 시세 데이터를 불러오는 중이거나 장 개시 전입니다.")
 
 # ---------------------------------------------------------
 # 3. 국제 은 시세 (Silver)
 # ---------------------------------------------------------
 st.markdown('<p class="main-title">⚪ 국제 은 시세 (Silver)</p>', unsafe_allow_html=True)
-if df_rt is not None:
+if df_10m is not None:
     st.markdown(f"""
         <div class="price-container">
             <div class="price-box">
                 <span class="val-label">국내 환산가 (1돈)</span>
                 <span class="val-main">{int(c_rt['silver_don']):,}원</span>
-                {format_delta(c_da['silver_don'], p_da['silver_don'])} <small>(전일대비)</small>
+                {format_delta(c_da['silver_don'], p_da['silver_don'])}
             </div>
             <div class="price-box">
                 <span class="val-label">국제 시세 (1oz)</span>
                 <span class="val-main">${c_rt['silver']:.2f}</span>
-                {format_delta(c_da['silver'], p_da['silver'])} <small>(전일대비)</small>
+                {format_delta(c_da['silver'], p_da['silver'])}
             </div>
         </div>
     """, unsafe_allow_html=True)
 
-    s_tab1, s_tab2 = st.tabs(["실시간(KST 분단위)", "한달(일단위)"])
+    s_tab1, s_tab2 = st.tabs(["실시간(10분 단위)", "한달(일단위)"])
     with s_tab1:
-        fig = px.line(df_rt.tail(60), y='silver_don')
-        fig.update_traces(line_color='#adb5bd').update_layout(height=200, margin=dict(l=0,r=0,t=10,b=0), xaxis_title=None, yaxis_title=None)
+        fig = px.line(df_10m.tail(150), y='silver_don')
+        fig.update_traces(line_color='#adb5bd').update_layout(height=230, margin=dict(l=0,r=0,t=10,b=0), xaxis_title=None, yaxis_title=None, yaxis=dict(autorange=True, fixedrange=False))
         st.plotly_chart(fig, use_container_width=True)
     with s_tab2:
         fig = px.line(df_daily, y='silver_don')
-        fig.update_traces(line_color='#adb5bd').update_layout(height=200, margin=dict(l=0,r=0,t=10,b=0), xaxis_title=None, yaxis_title=None)
+        fig.update_traces(line_color='#adb5bd').update_layout(height=230, margin=dict(l=0,r=0,t=10,b=0), xaxis_title=None, yaxis_title=None, yaxis=dict(autorange=True, fixedrange=False))
         st.plotly_chart(fig, use_container_width=True)

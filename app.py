@@ -27,7 +27,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 등락 표시 유틸리티 ---
+# --- 유틸리티: 등락 표시 ---
 def get_delta_html(curr, prev, prefix=""):
     if prev == 0 or curr is None: return ""
     diff = curr - prev
@@ -36,14 +36,21 @@ def get_delta_html(curr, prev, prefix=""):
     sign = "▲" if diff >= 0 else "▼"
     return f'<span class="delta {color}">{sign} {prefix}{abs(diff):,.2f} ({pct:+.2f}%)</span>'
 
-def update_chart_layout(fig, y_min, y_max):
-    fig.update_layout(height=300, margin=dict(l=0, r=0, t=10, b=0),
+# --- 유틸리티: 차트 레이아웃 최적화 (X축 밀착 로직 포함) ---
+def update_chart_style(fig, df, y_min, y_max):
+    fig.update_traces(mode='lines+markers', marker=dict(size=4), connectgaps=True)
+    fig.update_layout(
+        height=300, margin=dict(l=0, r=10, t=10, b=0),
         yaxis=dict(range=[y_min, y_max], fixedrange=True, title=None),
-        xaxis=dict(fixedrange=True, title=None),
-        dragmode=False, hovermode="x unified", template="plotly_white")
+        xaxis=dict(
+            range=[df.index.min(), df.index.max()], # 최신 날짜까지 꽉 채움
+            fixedrange=True, title=None, type='date', tickformat='%m-%d'
+        ),
+        dragmode=False, hovermode="x unified", template="plotly_white"
+    )
     return fig
 
-# --- 데이터 파싱: 네이버 실시간 국내 금 ---
+# --- 데이터 수집 함수들 ---
 def get_naver_realtime():
     try:
         url = "https://finance.naver.com/marketindex/goldDetail.naver"
@@ -54,7 +61,6 @@ def get_naver_realtime():
         return float(price_1g.replace(',', '')) * 3.75, datetime.now(KST).strftime('%H:%M:%S')
     except: return None, None
 
-# --- 데이터 로드: 국내 금 (공공데이터) ---
 @st.cache_data(ttl=3600)
 def get_krx_data():
     url = "https://apis.data.go.kr/1160100/service/GetGeneralProductInfoService/getGoldPriceInfo"
@@ -70,7 +76,6 @@ def get_krx_data():
         return df, df.index[-1].strftime('%Y-%m-%d')
     except: return None, None
 
-# --- 데이터 로드: 국제 금/은/환율 ---
 @st.cache_data(ttl=120)
 def get_intl_data():
     try:
@@ -84,62 +89,42 @@ def get_intl_data():
         return df, datetime.now(KST).strftime('%Y-%m-%d %H:%M:%S')
     except: return None, None
 
-# 데이터 호출
+# 데이터 로드
 df_intl, intl_time = get_intl_data()
 df_krx, krx_last_date = get_krx_data()
 realtime_kr, naver_time = get_naver_realtime()
 
 st.markdown('<p class="gs-title">📊 금/은 마켓 실시간 대시보드</p>', unsafe_allow_html=True)
 
+# --- [1] 국제 금 (Gold) ---
 if df_intl is not None:
     curr, prev = df_intl.iloc[-1], df_intl.iloc[-2]
+    st.markdown(f'<div class="fx-container"><span style="font-weight:700;">원/달러 환율</span><div style="text-align:right;"><span style="font-size:18px; font-weight:800;">{curr["ex"]:,.2f}원</span><br>{get_delta_html(curr["ex"], prev["ex"])}</div></div>', unsafe_allow_html=True)
     
-    # --- 환율 정보 섹션 ---
-    st.markdown(f"""
-        <div class="fx-container">
-            <span style="font-size:14px; font-weight:700;">원/달러 환율</span>
-            <div style="text-align:right;">
-                <span style="font-size:18px; font-weight:800;">{curr['ex']:,.2f}원</span><br>
-                {get_delta_html(curr['ex'], prev['ex'])}
-            </div>
-        </div>
-    """, unsafe_allow_html=True)
-
-    # --- [1] 국제 금 시세 (Gold) ---
     st.markdown('<p class="main-title">🟡 국제 금 시세 (Gold)</p>', unsafe_allow_html=True)
-    col1, col2 = st.columns(2)
-    with col1: st.markdown(f'<div class="price-box"><span class="val-sub">국제 (1oz)</span><span class="val-main">${curr["gold"]:,.2f}</span>{get_delta_html(curr["gold"], prev["gold"], "$")}<span class="ref-time">수집: {intl_time}</span></div>', unsafe_allow_html=True)
-    with col2: st.markdown(f'<div class="price-box"><span class="val-sub">국내환산 (1돈)</span><span class="val-main">{int(curr["gold_don"]):,}원</span>{get_delta_html(curr["gold_don"], prev["gold_don"])}<span class="ref-time">환율기준: {intl_time}</span></div>', unsafe_allow_html=True)
+    c1, c2 = st.columns(2)
+    with c1: st.markdown(f'<div class="price-box"><span class="val-sub">국제 (1oz)</span><span class="val-main">${curr["gold"]:,.2f}</span>{get_delta_html(curr["gold"], prev["gold"], "$")}<span class="ref-time">수집: {intl_time}</span></div>', unsafe_allow_html=True)
+    with c2: st.markdown(f'<div class="price-box"><span class="val-sub">국내환산 (1돈)</span><span class="val-main">{int(curr["gold_don"]):,}원</span>{get_delta_html(curr["gold_don"], prev["gold_don"])}<span class="ref-time">환율기준: {intl_time}</span></div>', unsafe_allow_html=True)
+    
+    t1, t2 = st.tabs(["$/oz 차트", "₩/돈 차트"])
+    with t1: st.plotly_chart(update_chart_style(px.line(df_intl, y='gold'), df_intl, df_intl['gold'].min()*0.99, df_intl['gold'].max()*1.01), use_container_width=True)
+    with t2: st.plotly_chart(update_chart_style(px.line(df_intl, y='gold_don').update_traces(line_color='#f1c40f'), df_intl, df_intl['gold_don'].min()*0.99, df_intl['gold_don'].max()*1.01), use_container_width=True)
 
-    t1, t2 = st.tabs(["온스당 달러 ($/oz)", "돈당 원화 (₩/돈)"])
-    with t1: st.plotly_chart(update_chart_layout(px.line(df_intl, y='gold'), df_intl['gold'].min()*0.99, df_intl['gold'].max()*1.01), use_container_width=True)
-    with t2: st.plotly_chart(update_chart_layout(px.line(df_intl, y='gold_don').update_traces(line_color='#f1c40f'), df_intl['gold_don'].min()*0.99, df_intl['gold_don'].max()*1.01), use_container_width=True)
-
-# --- [2] 국내 금 시세 (KRX) ---
+# --- [2] 국내 금 (KRX) ---
 st.markdown('<p class="main-title">🇰🇷 국내 금 시세 (KRX 공식)</p>', unsafe_allow_html=True)
 if df_krx is not None:
     k_curr, k_prev = df_krx['종가'].iloc[-1], df_krx['종가'].iloc[-2]
-    display_price = realtime_kr if realtime_kr else k_curr
-    st.markdown(f"""
-        <div class="price-box" style="margin-bottom:15px;">
-            <span class="val-sub">{"실시간 현재가 (네이버)" if realtime_kr else "마지막 종가"} (1돈 기준)</span>
-            <span class="val-main" style="color:#d9534f;">{int(display_price):,}원</span>
-            {get_delta_html(display_price, k_prev)}
-            <span class="ref-time">
-                <b>실시간:</b> {naver_time if naver_time else "정보없음"}<br>
-                <b>차트:</b> {krx_last_date} 종가 데이터 기준
-            </span>
-        </div>
-    """, unsafe_allow_html=True)
-    st.plotly_chart(update_chart_layout(px.area(df_krx, y='종가').update_traces(line_color='#4361ee', fillcolor='rgba(67, 97, 238, 0.1)'), df_krx['종가'].min()*0.98, df_krx['종가'].max()*1.02), use_container_width=True)
+    disp_p = realtime_kr if realtime_kr else k_curr
+    st.markdown(f'<div class="price-box" style="margin-bottom:15px;"><span class="val-sub">{"실시간(네이버)" if realtime_kr else "마지막 종가"} (1돈)</span><span class="val-main" style="color:#d9534f;">{int(disp_p):,}원</span>{get_delta_html(disp_p, k_prev)}<span class="ref-time"><b>실시간:</b> {naver_time}<br><b>차트:</b> {krx_last_date} 종가 기준</span></div>', unsafe_allow_html=True)
+    st.plotly_chart(update_chart_style(px.area(df_krx, y='종가').update_traces(line_color='#4361ee', fillcolor='rgba(67, 97, 238, 0.1)'), df_krx, df_krx['종가'].min()*0.98, df_krx['종가'].max()*1.02), use_container_width=True)
 
-# --- [3] 국제 은 시세 (Silver) ---
+# --- [3] 국제 은 (Silver) ---
 if df_intl is not None:
     st.markdown('<p class="main-title">⚪ 국제 은 시세 (Silver)</p>', unsafe_allow_html=True)
-    col3, col4 = st.columns(2)
-    with col3: st.markdown(f'<div class="price-box"><span class="val-sub">국제 (1oz)</span><span class="val-main">${curr["silver"]:,.2f}</span>{get_delta_html(curr["silver"], prev["silver"], "$")}<span class="ref-time">수집: {intl_time}</span></div>', unsafe_allow_html=True)
-    with col4: st.markdown(f'<div class="price-box"><span class="val-sub">국내환산 (1돈)</span><span class="val-main">{int(curr["silver_don"]):,}원</span>{get_delta_html(curr["silver_don"], prev["silver_don"])}<span class="ref-time">환율기준: {intl_time}</span></div>', unsafe_allow_html=True)
-
-    s1, s2 = st.tabs(["온스당 달러 ($/oz)", "돈당 원화 (₩/돈)"])
-    with s1: st.plotly_chart(update_chart_layout(px.line(df_intl, y='silver').update_traces(line_color='#adb5bd'), df_intl['silver'].min()*0.95, df_intl['silver'].max()*1.05), use_container_width=True)
-    with s2: st.plotly_chart(update_chart_layout(px.line(df_intl, y='silver_don').update_traces(line_color='#adb5bd'), df_intl['silver_don'].min()*0.95, df_intl['silver_don'].max()*1.05), use_container_width=True)
+    c3, c4 = st.columns(2)
+    with c3: st.markdown(f'<div class="price-box"><span class="val-sub">국제 (1oz)</span><span class="val-main">${curr["silver"]:,.2f}</span>{get_delta_html(curr["silver"], prev["silver"], "$")}<span class="ref-time">수집: {intl_time}</span></div>', unsafe_allow_html=True)
+    with c4: st.markdown(f'<div class="price-box"><span class="val-sub">국내환산 (1돈)</span><span class="val-main">{int(curr["silver_don"]):,}원</span>{get_delta_html(curr["silver_don"], prev["silver_don"])}<span class="ref-time">환율기준: {intl_time}</span></div>', unsafe_allow_html=True)
+    
+    s1, s2 = st.tabs(["$/oz 차트", "₩/돈 차트"])
+    with s1: st.plotly_chart(update_chart_style(px.line(df_intl, y='silver').update_traces(line_color='#adb5bd'), df_intl, df_intl['silver'].min()*0.95, df_intl['silver'].max()*1.05), use_container_width=True)
+    with s2: st.plotly_chart(update_chart_style(px.line(df_intl, y='silver_don').update_traces(line_color='#adb5bd'), df_intl, df_intl['silver_don'].min()*0.95, df_intl['silver_don'].max()*1.05), use_container_width=True)

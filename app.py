@@ -2,131 +2,142 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import plotly.express as px
+import requests
+import xml.etree.ElementTree as ET
 from datetime import datetime
 
-# 1. 페이지 설정
-st.set_page_config(page_title="실시간 금/은 종합 리포트", layout="centered")
+# 1. 페이지 설정 및 디자인
+st.set_page_config(page_title="제네바시계 금융 대시보드", layout="centered")
 
 st.markdown("""
     <style>
-    .block-container { max-width: 90% !important; padding-left: 5% !important; padding-right: 5% !important; }
-    .gs-title { font-size: clamp(20px, 7vw, 30px) !important; font-weight: 700; margin-top: 20px; margin-bottom: 5px; line-height: 1.2 !important; }
+    .gs-title { font-size: 28px; font-weight: 800; margin-bottom: 5px; color: #1e1e1e; }
     .live-indicator { color: #ff0000; font-weight: 800; font-size: 12px; animation: blinker 1.5s linear infinite; }
     @keyframes blinker { 50% { opacity: 0; } }
-    .main-title { font-size: 19px; font-weight: 700; margin-top: 25px; margin-bottom: 12px; }
-    .custom-container { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 15px; }
-    .custom-item { flex: 1; background-color: #f8f9fa; padding: 12px 5px; border-radius: 12px; text-align: center; border-left: 4px solid #dee2e6; min-width: 0; }
-    .gold-box { background-color: #fff9e6; border-left-color: #f1c40f; }
-    .silver-box { background-color: #f1f3f5; border-left-color: #adb5bd; }
-    .value-text { font-size: 16px; font-weight: 800; color: #1E1E1E; }
-    .delta-text { font-size: 11px; font-weight: 600; margin-top: 3px; display: block; }
-    .ex-info { text-align: right; padding: 10px; background: #f8f9fa; border-radius: 8px; margin-bottom: 20px; border: 1px solid #eee; }
-    .up { color: #d9534f; } .down { color: #0275d8; } .equal { color: #666; }
+    .main-title { font-size: 18px; font-weight: 700; margin-top: 20px; margin-bottom: 10px; border-left: 4px solid #333; padding-left: 10px; }
+    .price-box { background-color: #f8f9fa; padding: 15px; border-radius: 12px; border: 1px solid #eee; margin-bottom: 10px; }
+    .val-main { font-size: 22px; font-weight: 800; color: #111; }
+    .val-sub { font-size: 13px; color: #666; margin-left: 10px; }
+    .up { color: #d9534f; font-weight: 600; } .down { color: #0275d8; font-weight: 600; }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. 등락 계산 함수
-def get_delta_html(curr, prev, is_currency=False):
-    diff = curr - prev
-    pct = (diff / prev) * 100 if prev != 0 else 0
-    if abs(diff) < 0.0001: return '<span class="delta-text equal">- 0 (0.00%)</span>'
-    sign = "▲" if diff > 0 else "▼"
-    color = "up" if diff > 0 else "down"
-    v = f"{abs(diff):.2f}" if is_currency else f"{int(abs(diff)):,}"
-    return f'<span class="delta-text {color}">{sign} {v} ({pct:+.2f}%)</span>'
-
-# 3. 실시간 데이터 로드 (1분 단위)
+# 2. 데이터 처리 함수들
 @st.cache_data(ttl=60)
-def load_full_realtime_data():
+def load_realtime(): # 1분 단위 데이터
+    tickers = ["GC=F", "SI=F", "KRW=X"]
+    data = yf.download(tickers, period="2d", interval="1m")['Close'].ffill()
+    df = data.rename(columns={"GC=F": "gold", "SI=F": "silver", "KRW=X": "ex"})
+    df['gold_don'] = (df['gold'] / 31.1035) * df['ex'] * 3.75
+    df['silver_don'] = (df['silver'] / 31.1035) * df['ex'] * 3.75
+    return df
+
+@st.cache_data(ttl=3600)
+def load_monthly(): # 한달 일별 데이터 (국제)
+    tickers = ["GC=F", "SI=F", "KRW=X"]
+    data = yf.download(tickers, period="1mo", interval="1d")['Close'].ffill()
+    df = data.rename(columns={"GC=F": "gold", "SI=F": "silver", "KRW=X": "ex"})
+    df['gold_don'] = (df['gold'] / 31.1035) * df['ex'] * 3.75
+    df['silver_don'] = (df['silver'] / 31.1035) * df['ex'] * 3.75
+    return df
+
+@st.cache_data(ttl=3600)
+def get_krx_monthly(): # 국내 KRX 한달 종가
+    service_key = "ca42a8df54920a2536a7e5c4efe6594b2265a445a39ebc36244d108c5ae9e87a"
+    url = "https://apis.data.go.kr/1160100/service/GetGeneralProductInfoService/getGoldPriceInfo"
+    params = {'serviceKey': service_key, 'numOfRows': '30', 'resultType': 'xml'}
     try:
-        tickers = ["GC=F", "SI=F", "KRW=X"]
-        data = yf.download(tickers, period="2d", interval="1m")['Close']
-        df = data.ffill().rename(columns={"GC=F": "gold", "SI=F": "silver", "KRW=X": "ex"})
-        df['gold_don'] = (df['gold'] / 31.1035) * df['ex'] * 3.75
-        df['silver_don'] = (df['silver'] / 31.1035) * df['ex'] * 3.75
-        return df
+        res = requests.get(url, params=params, timeout=10)
+        root = ET.fromstring(res.text)
+        items = root.findall('.//item')
+        hist = []
+        for item in items:
+            hist.append({'날짜': pd.to_datetime(item.find('basDt').text), 
+                         '종가': float(item.find('clpr').text) * 3.75,
+                         '등락': float(item.find('vs').text) * 3.75,
+                         '등락률': float(item.find('flctRt').text)})
+        return pd.DataFrame(hist).sort_values('날짜')
     except: return None
 
-df = load_full_realtime_data()
+def display_delta(curr, prev):
+    diff = curr - prev
+    pct = (diff / prev) * 100
+    color = "up" if diff > 0 else "down"
+    sign = "▲" if diff > 0 else "▼"
+    return f'<span class="{color}">{sign} {int(abs(diff)):,}원 ({pct:+.2f}%)</span>'
 
-# 헤더
-col_h1, col_h2 = st.columns([2, 1])
-with col_h1:
-    st.markdown('<p class="gs-title">💰 실시간 금/은 종합 리포트</p>', unsafe_allow_html=True)
-    st.markdown('<p style="font-size:13px; color:#888; margin-top:-10px;">by 제네바시계</p>', unsafe_allow_html=True)
-with col_h2:
-    st.markdown(f'<p style="text-align:right;"><span class="live-indicator">● LIVE</span><br><span style="font-size:11px; color:#666;">{datetime.now().strftime("%H:%M:%S")}</span></p>', unsafe_allow_html=True)
+# 3. 메인 화면 구성
+st.markdown('<p class="gs-title">💰 금/은 종합 리포트</p>', unsafe_allow_html=True)
+tab1, tab2 = st.tabs(["⚡ 실시간 리포트 (1분)", "📅 한달 기록 (일별)"])
 
-if df is not None:
-    c = df.iloc[-1]
-    p = df.iloc[-2]
+df_rt = load_realtime()
+df_mo = load_monthly()
+df_krx = get_krx_monthly()
 
-    # --- 1. 국제 금 시세 (USD) ---
-    st.markdown('<p class="main-title">🟡 국제 금 시세 (Real-time USD)</p>', unsafe_allow_html=True)
-    st.markdown(f"""
-        <div class="custom-container">
-            <div class="custom-item">
-                <div style="font-size:11px; color:#666;">국제 금 (USD/oz)</div>
-                <div class="value-text">${c['gold']:.2f}</div>
-                {get_delta_html(c['gold'], p['gold'], True)}
-            </div>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    fig_g_intl = px.line(df.tail(60), y='gold')
-    fig_g_intl.update_traces(line_color='#ffa500', line_width=2)
-    fig_g_intl.update_layout(xaxis_title=None, yaxis_title=None, height=180, margin=dict(l=0,r=0,t=10,b=0), hovermode="x")
-    st.plotly_chart(fig_g_intl, use_container_width=True, config={'displayModeBar': False})
+# --- [TAB 1] 실시간 리포트 ---
+with tab1:
+    if df_rt is not None:
+        c = df_rt.iloc[-1]
+        p = df_rt.iloc[-2]
+        
+        st.markdown(f'<p style="text-align:right;"><span class="live-indicator">● 실시간 LIVE</span> ({datetime.now().strftime("%H:%M:%S")})</p>', unsafe_allow_html=True)
 
-    # 환율 정보 (차트 아래 배치)
-    st.markdown(f"""
-        <div class="ex-info">
-            <span style="font-size: 12px; color: #666;">실시간 환율: <b>{c['ex']:.2f}원</b></span>
-            <span> {get_delta_html(c['ex'], p['ex'], True)}</span>
-        </div>
-    """, unsafe_allow_html=True)
+        # 1. 국제 금
+        st.markdown('<p class="main-title">🟡 국제 금 시세</p>', unsafe_allow_html=True)
+        st.markdown(f"""<div class="price-box">
+            <span class="val-main">{int(c['gold_don']):,}원</span>
+            <span class="val-sub">(${c['gold']:.2f} / oz)</span><br>
+            {display_delta(c['gold_don'], p['gold_don'])}
+        </div>""", unsafe_allow_html=True)
+        fig1 = px.line(df_rt.tail(60), y='gold_don', title="최근 60분 흐름 (1돈)")
+        fig1.update_traces(line_color='#f1c40f').update_layout(height=200, margin=dict(l=0,r=0,t=30,b=0), xaxis_title=None, yaxis_title=None)
+        st.plotly_chart(fig1, use_container_width=True)
 
-    # --- 2. 국내 금 시세 (KRW 환산) ---
-    st.markdown('<p class="main-title">🇰🇷 국내 금 시세 (실시간 환산가)</p>', unsafe_allow_html=True)
-    st.markdown(f"""
-        <div class="custom-container">
-            <div class="custom-item gold-box">
-                <div style="font-size:11px; color:#666;">국내 금 1돈 (3.75g)</div>
-                <div class="value-text">{int(c['gold_don']):,}원</div>
-                {get_delta_html(c['gold_don'], p['gold_don'])}
-            </div>
-        </div>
-    """, unsafe_allow_html=True)
+        # 2. 국내 금 (실시간은 API가 없으므로 환산 시세로 표시)
+        st.markdown('<p class="main-title">🇰🇷 국내 금 시세 (실시간 환산)</p>', unsafe_allow_html=True)
+        st.markdown(f"""<div class="price-box">
+            <span class="val-main">{int(c['gold_don']):,}원</span>
+            <span class="val-sub">(환율: {c['ex']:.2f}원 적용)</span>
+        </div>""", unsafe_allow_html=True)
+        st.info("국내 실시간 시세는 국제 시세와 환율을 실시간 계산한 결과입니다.")
 
-    fig_g_krw = px.line(df.tail(60), y='gold_don')
-    fig_g_krw.update_traces(line_color='#f1c40f', line_width=2)
-    fig_g_krw.update_layout(xaxis_title=None, yaxis_title=None, height=180, margin=dict(l=0,r=0,t=10,b=0), yaxis=dict(tickformat=",.0f"), hovermode="x")
-    st.plotly_chart(fig_g_krw, use_container_width=True, config={'displayModeBar': False})
+        # 3. 국제 은
+        st.markdown('<p class="main-title">⚪ 국제 은 시세</p>', unsafe_allow_html=True)
+        st.markdown(f"""<div class="price-box">
+            <span class="val-main">{int(c['silver_don']):,}원</span>
+            <span class="val-sub">(${c['silver']:.2f} / oz)</span><br>
+            {display_delta(c['silver_don'], p['silver_don'])}
+        </div>""", unsafe_allow_html=True)
+        fig3 = px.line(df_rt.tail(60), y='silver_don')
+        fig3.update_traces(line_color='#adb5bd').update_layout(height=200, margin=dict(l=0,r=0,t=10,b=0), xaxis_title=None, yaxis_title=None)
+        st.plotly_chart(fig3, use_container_width=True)
 
-    st.divider()
+# --- [TAB 2] 한달 기록 리포트 ---
+with tab2:
+    # 1. 국제 금 (한달)
+    st.markdown('<p class="main-title">🟡 국제 금 (최근 30일)</p>', unsafe_allow_html=True)
+    fig_m1 = px.line(df_mo, y='gold_don')
+    fig_m1.update_traces(line_color='#f1c40f').update_layout(height=220, xaxis_title=None, yaxis_title=None)
+    st.plotly_chart(fig_m1, use_container_width=True)
 
-    # --- 3. 국제 은 시세 (Silver) ---
-    st.markdown('<p class="main-title">⚪ 국제 은 시세 (Real-time)</p>', unsafe_allow_html=True)
-    st.markdown(f"""
-        <div class="custom-container">
-            <div class="custom-item silver-box">
-                <div style="font-size:11px; color:#666;">은 1돈 (원화 환산)</div>
-                <div class="value-text">{int(c['silver_don']):,}원</div>
-                {get_delta_html(c['silver_don'], p['silver_don'])}
-            </div>
-            <div class="custom-item">
-                <div style="font-size:11px; color:#666;">국제 은 (USD/oz)</div>
-                <div class="value-text">${c['silver']:.2f}</div>
-                {get_delta_html(c['silver'], p['silver'], True)}
-            </div>
-        </div>
-    """, unsafe_allow_html=True)
+    # 2. 국내 금 (KRX 공식 한달 종가)
+    st.markdown('<p class="main-title">🇰🇷 국내 금 (KRX 공식 한달)</p>', unsafe_allow_html=True)
+    if df_krx is not None:
+        latest = df_krx.iloc[-1]
+        st.markdown(f"""<div class="price-box">
+            <span class="val-main">{int(latest['종가']):,}원</span>
+            <span class="{ 'up' if latest['등락'] > 0 else 'down' }">
+                ({ '▲' if latest['등락'] > 0 else '▼' } {int(abs(latest['등락'])):,}원, {latest['등락률']}% )
+            </span>
+        </div>""", unsafe_allow_html=True)
+        fig_m2 = px.bar(df_krx, x='날짜', y='종가', title="KRX 일별 종가 추이")
+        fig_m2.update_traces(marker_color='#4361ee').update_layout(height=220, xaxis_title=None, yaxis_title=None)
+        st.plotly_chart(fig_m2, use_container_width=True)
 
-    fig_s = px.line(df.tail(60), y='silver_don')
-    fig_s.update_traces(line_color='#adb5bd', line_width=2)
-    fig_s.update_layout(xaxis_title=None, yaxis_title=None, height=180, margin=dict(l=0,r=0,t=10,b=0), yaxis=dict(tickformat=",.0f"), hovermode="x")
-    st.plotly_chart(fig_s, use_container_width=True, config={'displayModeBar': False})
+    # 3. 국제 은 (한달)
+    st.markdown('<p class="main-title">⚪ 국제 은 (최근 30일)</p>', unsafe_allow_html=True)
+    fig_m3 = px.line(df_mo, y='silver_don')
+    fig_m3.update_traces(line_color='#adb5bd').update_layout(height=220, xaxis_title=None, yaxis_title=None)
+    st.plotly_chart(fig_m3, use_container_width=True)
 
-    st.caption("※ 1분 단위 실시간 마켓 피드 데이터입니다. (Yahoo Finance 제공)")
-else:
-    st.error("데이터 서버 연결 중입니다...")
+st.caption("실시간 시세: Yahoo Finance (1분 단위) / 국내 종가 시세: 공공데이터포털 KRX")

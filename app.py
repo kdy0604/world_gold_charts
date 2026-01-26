@@ -3,123 +3,81 @@ import yfinance as yf
 import pandas as pd
 import plotly.express as px
 
-# 1. 페이지 설정 및 디자인
-st.set_page_config(page_title="국제 금/은 시세 리포트", layout="centered")
+# 1. 페이지 설정
+st.set_page_config(page_title="국내 은행 가이드 시세", layout="centered")
 
+# 디자인 고도화 (국내 은행 리포트 스타일)
 st.markdown("""
     <style>
-    .block-container { max-width: 90% !important; padding-left: 5% !important; padding-right: 5% !important; }
-    .gs-title { font-size: clamp(20px, 7vw, 30px) !important; font-weight: 700; margin-top: 20px; margin-bottom: 5px; line-height: 1.2 !important; display: block !important; }
-    .geneva-title { font-size: 14px; font-weight: 700; margin-top: 5px; margin-bottom: 20px; text-align: right !important; padding-right: 15px !important; color: #888; }
-    .main-title { font-size: 19px; font-weight: 700; margin-top: 25px; margin-bottom: 12px; }
-    .custom-container { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 15px; }
-    .custom-item { flex: 1; background-color: #f8f9fa; padding: 12px 5px; border-radius: 12px; text-align: center; border-left: 4px solid #dee2e6; min-width: 0; }
-    .gold-box { background-color: #fff9e6; border-left-color: #f1c40f; }
-    .silver-box { background-color: #f1f3f5; border-left-color: #adb5bd; }
-    .label-text { font-size: 11px; color: #666; margin-bottom: 4px; white-space: nowrap; }
-    .value-text { font-size: 16px; font-weight: 800; color: #1E1E1E; white-space: nowrap; }
-    .delta-text { font-size: 11px; font-weight: 600; margin-top: 3px; display: block; }
-    .up { color: #d9534f; } .down { color: #0275d8; } .equal { color: #666; }
+    .report-card { background-color: #ffffff; padding: 20px; border-radius: 15px; border: 1px solid #e1e4e8; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 20px; }
+    .bank-header { color: #0046ff; font-weight: 800; font-size: 14px; margin-bottom: 10px; display: flex; align-items: center; }
+    .price-main { font-size: 28px; font-weight: 800; color: #1a1a1a; margin: 5px 0; }
+    .diff-label { font-size: 14px; font-weight: 600; }
+    .up { color: #d9534f; } .down { color: #0275d8; }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. 등락 금액 및 퍼센트 계산 함수
-def get_delta_html(curr, prev, is_currency=False):
+# 2. 등락 계산 함수
+def format_delta(curr, prev, is_usd=False):
     diff = curr - prev
-    pct = (diff / prev) * 100 if prev != 0 else 0
-    
-    if abs(diff) < 0.001: 
-        return '<span class="delta-text equal">- 0 (0.00%)</span>'
-    
-    # 기호 설정
+    pct = (diff / prev) * 100
+    color = "up" if diff > 0 else "down"
     sign = "▲" if diff > 0 else "▼"
-    color_class = "up" if diff > 0 else "down"
     
-    # 값 포맷팅 (달러나 환율은 소수점 표시, 원화는 정수 표시)
-    v = f"{abs(diff):.2f}" if is_currency else f"{int(abs(diff)):,}"
-    
-    return f'<span class="delta-text {color_class}">{sign} {v} ({pct:+.2f}%)</span>'
+    val_str = f"{abs(diff):.2f}" if is_usd else f"{int(abs(diff)):,}"
+    return f'<span class="{color}">{sign} {val_str} ({pct:+.2f}%)</span>'
 
 # 3. 데이터 로드
-@st.cache_data(ttl=600)
-def load_international_data():
+@st.cache_data(ttl=300)
+def get_market_data():
     try:
-        g = yf.Ticker("GC=F").history(period="1mo")
-        s = yf.Ticker("SI=F").history(period="1mo")
-        e = yf.Ticker("KRW=X").history(period="1mo")
-        df = pd.DataFrame({'gold': g['Close'], 'silver': s['Close'], 'ex': e['Close']}).ffill()
-        df['gold_don'] = (df['gold'] / 31.1035) * df['ex'] * 3.75
-        df['silver_don'] = (df['silver'] / 31.1035) * df['ex'] * 3.75
+        # 국제 금(GC=F), 환율(KRW=X), 은(SI=F)
+        tickers = yf.download(["GC=F", "KRW=X", "SI=F"], period="1mo", interval="1d")['Close']
+        df = tickers.ffill().rename(columns={"GC=F": "gold", "KRW=X": "ex", "SI=F": "silver"})
         return df
     except:
         return None
 
-data = load_international_data()
+df = get_market_data()
 
-st.markdown('<p class="gs-title">💰 국제 금/은 시세 리포트</p>', unsafe_allow_html=True)
-st.markdown('<p class="geneva-title">by 제네바시계</p>', unsafe_allow_html=True)
+st.title("🏦 금융 시장 지표 리포트")
+st.caption("실시간 국제 금융 데이터를 기반으로 산출된 정보입니다.")
 
-if data is not None:
-    curr = data.iloc[-1]
-    prev = data.iloc[-2]
-
-    # --- 금(Gold) 섹션 ---
-    st.markdown('<p class="main-title">🟡 국제 금 시세</p>', unsafe_allow_html=True)
-    st.markdown(f"""
-        <div class="custom-container">
-            <div class="custom-item gold-box">
-                <div class="label-text">금 1돈 (원화 환산)</div>
-                <div class="value-text">{int(curr['gold_don']):,}원</div>
-                {get_delta_html(curr['gold_don'], prev['gold_don'])}
-            </div>
-            <div class="custom-item">
-                <div class="label-text">국제 금 ($/oz)</div>
-                <div class="value-text">${curr['gold']:.1f}</div>
-                {get_delta_html(curr['gold'], prev['gold'], True)}
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+if df is not None:
+    c = df.iloc[-1]
+    p = df.iloc[-2]
     
-    fig_g = px.line(data, y='gold_don')
-    fig_g.update_traces(line_color='#f1c40f', line_width=3)
-    fig_g.update_layout(xaxis_title=None, yaxis_title=None, height=220, margin=dict(l=0,r=0,t=10,b=0), yaxis=dict(tickformat=",.0f"), hovermode="x", dragmode=False)
-    st.plotly_chart(fig_g, use_container_width=True, config={'displayModeBar': False})
+    # 금 1돈 환산
+    gold_don = (c['gold'] / 31.1035) * c['ex'] * 3.75
+    prev_gold_don = (p['gold'] / 31.1035) * p['ex'] * 3.75
 
-    # --- 환율 정보 섹션 ---
-    st.markdown(f"""
-        <div class="custom-container">
-            <div class="custom-item" style="border-left: 4px solid #007bff;">
-                <div class="label-text">원/달러 환율</div>
-                <div class="value-text">{curr['ex']:.2f}원</div>
-                {get_delta_html(curr['ex'], prev['ex'], True)}
+    # --- 리포트 섹션 ---
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown(f"""
+            <div class="report-card">
+                <div class="bank-header">● 국제 금 시세 (1돈)</div>
+                <div class="price-main">{int(gold_don):,}원</div>
+                <div class="diff-label">{format_delta(gold_don, prev_gold_don)}</div>
             </div>
-        </div>
-    """, unsafe_allow_html=True)
-
-    st.divider()
-
-    # --- 은(Silver) 섹션 ---
-    st.markdown('<p class="main-title">⚪ 국제 은 시세</p>', unsafe_allow_html=True)
-    st.markdown(f"""
-        <div class="custom-container">
-            <div class="custom-item silver-box">
-                <div class="label-text">은 1돈 (원화 환산)</div>
-                <div class="value-text">{int(curr['silver_don']):,}원</div>
-                {get_delta_html(curr['silver_don'], prev['silver_don'])}
-            </div>
-            <div class="custom-item">
-                <div class="label-text">국제 은 ($/oz)</div>
-                <div class="value-text">${curr['silver']:.2f}</div>
-                {get_delta_html(curr['silver'], prev['silver'], True)}
-            </div>
-        </div>
         """, unsafe_allow_html=True)
 
-    fig_s = px.line(data, y='silver_don')
-    fig_s.update_traces(line_color='#adb5bd', line_width=3)
-    fig_s.update_layout(xaxis_title=None, yaxis_title=None, height=220, margin=dict(l=0,r=0,t=10,b=0), yaxis=dict(tickformat=",.0f"), hovermode="x", dragmode=False)
-    st.plotly_chart(fig_s, use_container_width=True, config={'displayModeBar': False})
+    with col2:
+        st.markdown(f"""
+            <div class="report-card">
+                <div class="bank-header">● 원/달러 환율</div>
+                <div class="price-main">{c['ex']:.2f}원</div>
+                <div class="diff-label">{format_delta(c['ex'], p['ex'], True)}</div>
+            </div>
+        """, unsafe_allow_html=True)
 
-    st.caption("데이터 출처: Yahoo Finance (전일 종가 대비 변동률)")
+    # 차트
+    fig = px.line(df, y=(df['gold']/31.1035)*df['ex']*3.75, title="금 시세 흐름 (1돈/원)")
+    fig.update_layout(xaxis_title=None, yaxis_title=None, height=300)
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.info("💡 국내 은행 파싱은 보안 정책상 차단될 확률이 높습니다. 현재 리포트는 글로벌 금융 시장 실시간 데이터를 기반으로 제공됩니다.")
+
 else:
-    st.error("데이터 로딩 실패")
+    st.error("데이터 서버에 연결할 수 없습니다.")

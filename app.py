@@ -8,11 +8,8 @@ from urllib.parse import unquote
 from datetime import datetime
 import pytz
 
-# 1. 페이지 및 시간 설정
+# 1. 페이지 및 스타일 설정
 st.set_page_config(page_title="제네바시계 마켓 대시보드", layout="centered")
-KST = pytz.timezone('Asia/Seoul')
-now_kst = datetime.now(KST)
-
 st.markdown("""
     <style>
     .gs-title { font-size: 26px; font-weight: 800; margin-bottom: 20px; color: #1e1e1e; border-bottom: 2px solid #333; padding-bottom: 10px; }
@@ -21,106 +18,102 @@ st.markdown("""
     .fx-label { font-size: 14px; color: #555; font-weight: 600; }
     .fx-value { font-size: 18px; font-weight: 800; color: #111; }
     .price-box { background-color: #f8f9fa; padding: 15px; border-radius: 12px; border: 1px solid #eee; text-align: center; margin-bottom: 10px; }
-    .val-main { font-size: 20px; font-weight: 800; color: #111; display: block; }
+    .val-main { font-size: 22px; font-weight: 800; color: #111; display: block; }
     .up { color: #d9534f; font-weight: 600; } .down { color: #0275d8; font-weight: 600; }
     </style>
     """, unsafe_allow_html=True)
 
-# 데이터 로드: 국제/환율 (안정성 확보)
+# 2. 데이터 로드: 국제 및 환율
 @st.cache_data(ttl=3600)
-def get_intl_market_data():
+def get_intl_data():
     try:
-        tickers = ["GC=F", "SI=F", "KRW=X"]
-        df = yf.download(tickers, period="3mo", interval="1d", progress=False)['Close']
+        # 데이터가 비어있을 경우를 대비해 여유있게 가져옴
+        df = yf.download(["GC=F", "SI=F", "KRW=X"], period="6mo", interval="1d", progress=False)['Close']
         df = df.rename(columns={"GC=F": "gold", "SI=F": "silver", "KRW=X": "ex"}).ffill().dropna()
+        if len(df) < 2: return None
         df['gold_don'] = (df['gold'] / 31.1035) * df['ex'] * 3.75
+        df['silver_don'] = (df['silver'] / 31.1035) * df['ex'] * 3.75
         return df
     except: return None
 
-# [핵심 수정] 국내 데이터 로드: 파싱 및 필터링 대폭 강화
+# 3. 데이터 로드: 국내 KRX (KeyError 방지)
 @st.cache_data(ttl=3600)
-def get_krx_gold_data():
+def get_krx_data():
     url = "https://apis.data.go.kr/1160100/service/GetGeneralProductInfoService/getGoldPriceInfo"
-    # 인증키를 unquote 처리하여 중복 인코딩 문제 방지
     raw_key = "ca42a8df54920a2536a7e5c4efe6594b2265a445a39ebc36244d108c5ae9e87a"
-    service_key = unquote(raw_key) 
-    
-    params = {
-        'serviceKey': service_key,
-        'numOfRows': '200',
-        'resultType': 'xml'
-    }
-    
     try:
-        response = requests.get(url, params=params, timeout=15)
-        root = ET.fromstring(response.content)
-        items = root.findall('.//item')
-        
+        res = requests.get(url, params={'serviceKey': unquote(raw_key), 'numOfRows': '200', 'resultType': 'xml'}, timeout=15)
+        root = ET.fromstring(res.content)
         data_list = []
-        for item in items:
-            itms_nm = item.findtext('itmsNm', '').replace(' ', '') # 공백 제거 후 비교
-            if "금99.99" in itms_nm:
-                d_val = item.findtext('basDt')
-                p_val = item.findtext('clpr')
-                r_val = item.findtext('flctRt') or "0"
-                if d_val and p_val:
-                    data_list.append({
-                        '날짜': pd.to_datetime(d_val),
-                        '종가': float(p_val) * 3.75,
-                        '등락률': float(r_val)
-                    })
-        
+        for item in root.findall('.//item'):
+            name = item.findtext('itmsNm', '').replace(' ', '')
+            if name == "금99.99":
+                # findtext를 사용하여 해당 태그가 없으면 0이나 기본값 반환 (KeyError 방지)
+                data_list.append({
+                    '날짜': pd.to_datetime(item.findtext('basDt')),
+                    '종가': float(item.findtext('clpr', 0)) * 3.75,
+                    '등락률': float(item.findtext('flctRt', 0))
+                })
         if not data_list: return None
-        
-        df = pd.DataFrame(data_list)
-        # 날짜별 중복 제거 및 정렬
-        df = df.drop_duplicates(subset=['날짜'], keep='first').sort_values('날짜')
-        return df
-    except Exception as e:
-        # 에러 발생 시 화면에 디버깅 정보를 남기지 않고 None 반환
-        return None
+        return pd.DataFrame(data_list).drop_duplicates('날짜').sort_values('날짜')
+    except: return None
 
 # 데이터 호출
-df_intl = get_intl_market_data()
-df_krx = get_krx_gold_data()
+df_intl = get_intl_data()
+df_krx = get_krx_data()
 
 st.markdown('<p class="gs-title">📊 금/은 마켓 실시간 대시보드</p>', unsafe_allow_html=True)
 
-# 섹션 1: 환율 및 국제 금
-if df_intl is not None:
+# --- [섹션 1] 환율 및 국제 금 시세 ---
+if df_intl is not None and len(df_intl) >= 2:
     curr = df_intl.iloc[-1]
     prev = df_intl.iloc[-2]
     
+    # 1. 환율 정보 (차트 상단)
+    diff_ex = curr['ex'] - prev['ex']
+    pct_ex = (diff_ex / prev['ex']) * 100
     st.markdown(f"""
         <div class="fx-container">
             <span class="fx-label">현재 원/달러 환율 (USD/KRW)</span>
-            <span class="fx-value">{curr['ex']:,.2f}원</span>
+            <div style="text-align:right;">
+                <span class="fx-value">{curr['ex']:,.2f}원</span>
+                <span class="{'up' if diff_ex > 0 else 'down'}" style="font-size:14px; margin-left:8px;">
+                    {'▲' if diff_ex > 0 else '▼'} {abs(diff_ex):.2f} ({pct_ex:+.2f}%)
+                </span>
+            </div>
         </div>
     """, unsafe_allow_html=True)
 
+    # 2. 국제 금 가격 및 차트
     st.markdown('<p class="main-title">🟡 국제 금 시세 (Gold)</p>', unsafe_allow_html=True)
-    fig_g = px.line(df_intl, y='gold_don', template="plotly_white")
+    st.markdown(f"""<div class="price-box"><span style="font-size:12px; color:#666;">국내 환산가 (1돈)</span><span class="val-main">{int(curr['gold_don']):,}원</span></div>""", unsafe_allow_html=True)
+    
     y_min, y_max = df_intl['gold_don'].min() * 0.99, df_intl['gold_don'].max() * 1.01
-    fig_g.update_layout(height=280, margin=dict(l=0,r=0,t=10,b=0), yaxis=dict(range=[y_min, y_max], autorange=False))
+    fig_g = px.line(df_intl, y='gold_don', template="plotly_white")
+    fig_g.update_layout(height=300, margin=dict(l=0,r=0,t=10,b=0), yaxis=dict(range=[y_min, y_max], autorange=False), xaxis_title=None, yaxis_title=None)
     fig_g.update_traces(line_color='#f1c40f', line_width=3)
     st.plotly_chart(fig_g, use_container_width=True)
+else:
+    st.error("국제 시세 데이터를 읽어오는 중 에러가 발생했습니다.")
 
-# 섹션 2: 국내 금 (KRX)
+# --- [섹션 2] 국내 금 시세 (KRX) ---
 st.markdown('<p class="main-title">🇰🇷 국내 금 시세 (KRX 공식)</p>', unsafe_allow_html=True)
-if df_krx is not None and not df_krx.empty:
+if df_krx is not None and len(df_krx) >= 1:
     latest_k = df_krx.iloc[-1]
     st.markdown(f"""
         <div class="price-box">
-            <span style="font-size:11px; color:#666;">KRX 종가 (1돈 환산)</span>
+            <span style="font-size:12px; color:#666;">오늘의 KRX 종가 (1돈)</span>
             <span class="val-main">{int(latest_k['종가']):,}원</span>
-            <span class="{'up' if latest_k['등락률'] > 0 else 'down'}">{'▲' if latest_k['등롤'] > 0 else '▼'} {latest_k['등락률']}%</span>
+            <span class="{'up' if latest_k['등락률'] > 0 else 'down'}">
+                {'▲' if latest_k['등락률'] > 0 else '▼'} {abs(latest_k['등락률'])}%
+            </span>
         </div>
     """, unsafe_allow_html=True)
     
     yk_min, yk_max = df_krx['종가'].min() * 0.99, df_krx['종가'].max() * 1.01
     fig_k = px.area(df_krx, x='날짜', y='종가', template="plotly_white")
-    fig_k.update_layout(height=280, margin=dict(l=0,r=0,t=10,b=0), yaxis=dict(range=[yk_min, yk_max], autorange=False))
+    fig_k.update_layout(height=300, margin=dict(l=0,r=0,t=10,b=0), yaxis=dict(range=[yk_min, yk_max], autorange=False), xaxis_title=None, yaxis_title=None)
     fig_k.update_traces(line_color='#4361ee', fillcolor='rgba(67, 97, 238, 0.1)')
     st.plotly_chart(fig_k, use_container_width=True)
 else:
-    st.warning("국내(KRX) 데이터를 불러올 수 없습니다. API 연결 또는 종목명을 다시 확인 중입니다.")
+    st.warning("국내 금 시세 정보를 찾을 수 없습니다. (종목 필터링 중)")

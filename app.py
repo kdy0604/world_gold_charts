@@ -133,3 +133,58 @@ if df_intl is not None:
     with s2:
         df_sv_won = df_intl[['silver_don']] / 10000
         st.plotly_chart(update_chart_style(px.line(df_sv_won, y='silver_don').update_traces(line_color='#adb5bd'), df_sv_won, df_sv_won['silver_don'].min()*0.95, df_sv_won['silver_don'].max()*1.05, is_won=True, is_silver=True), use_container_width=True, config={'displayModeBar': False})
+
+
+import streamlit as st
+import requests
+import pandas as pd
+from datetime import datetime
+
+@st.cache_data(ttl=10)
+def fetch_goodgold_realtime():
+    # 굿골드가 데이터를 실시간으로 받아오는 코스콤 API 주소입니다.
+    url = "https://cyberir.koscom.co.kr/cyberir/main/mainGoldPrc.do"
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Referer": "https://cyberir.koscom.co.kr/cyberir/main.do?custId=goodgold&pagePart=1",
+        "X-Requested-With": "XMLHttpRequest"
+    }
+    
+    try:
+        # POST 방식으로 요청해야 데이터를 줍니다.
+        resp = requests.post(url, headers=headers, timeout=5)
+        data = resp.json()
+        
+        # 데이터 구조에서 현재가(1g)와 전일대비 가격 추출
+        # data['goldPrcList'][0]에 실시간 정보가 들어있음
+        item = data['goldPrcList'][0]
+        
+        return {
+            "price_1g": float(item['trdPrc']), # 현재가
+            "change": float(item['cmprPrev']), # 전일대비
+            "time": item['trdTm'] # 거래시간
+        }
+    except Exception as e:
+        return None
+
+st.markdown('<p class="main-title">📍 굿골드 실시간 시세 (돈당 원)</p>', unsafe_allow_html=True)
+
+gg_data = fetch_goodgold_realtime()
+
+if gg_data:
+    # 1돈(3.75g) 환산
+    price_don = gg_data['price_1g'] * 3.75
+    change_don = gg_data['change'] * 3.75
+    
+    st.markdown(f'''
+        <div class="price-box" style="width:100%; border-left: 5px solid #2ecc71; background-color: #f0fff4;">
+            <span class="val-sub">굿골드 코스콤 실시간 (1돈)</span>
+            <span class="val-main" style="color:#27ae60; font-size:20px;">{int(price_don):,}원</span>
+            <span class="delta {"up" if change_don >= 0 else "down"}">
+                {"▲" if change_don >= 0 else "▼"} {abs(change_don):,.1f}
+            </span>
+        </div>
+        <p class="ref-time-integrated">갱신시간: {gg_data['time']} (데이터 출처: 굿골드/코스콤)</p>
+    ''', unsafe_allow_html=True)
+else:
+    st.error("굿골드 데이터를 가져오는 데 실패했습니다.")

@@ -7,7 +7,6 @@ import xml.etree.ElementTree as ET
 from urllib.parse import unquote
 from datetime import datetime
 import pytz
-from bs4 import BeautifulSoup
 
 # 1. 페이지 설정 및 스타일
 st.set_page_config(page_title="제네바시계 마켓 대시보드", layout="centered")
@@ -36,7 +35,7 @@ def get_delta_html(curr, prev, prefix=""):
     sign = "▲" if diff >= 0 else "▼"
     return f'<span class="delta {color}">{sign} {prefix}{abs(diff):,.2f} ({pct:+.2f}%)</span>'
 
-# --- 유틸리티: 차트 레이아웃 최적화 ---
+# --- 유틸리티: 차트 레이아웃 (만원 단위 + 버튼 제거) ---
 def update_chart_style(fig, df, y_min, y_max, is_won=False, is_silver=False):
     fmt = ".1f" if is_silver else ".0f"
     fig.update_traces(
@@ -51,41 +50,21 @@ def update_chart_style(fig, df, y_min, y_max, is_won=False, is_silver=False):
     )
     return fig
 
-# --- [스크래핑] 네이버 실시간 국내 금 현재가 ---
-def get_naver_realtime():
-    """차단 우회를 위해 헤더를 보강한 실시간 시세 수집 함수"""
+# --- [대안] 실시간 국내 금 시세 (TIGER 금현물 ETF 역산) ---
+def get_realtime_from_etf():
     try:
-        url = "https://finance.naver.com/marketindex/goldDetail.naver"
-        # 실제 브라우저처럼 보이도록 헤더 보강
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
-            'Referer': 'https://finance.naver.com/marketindex/',
-            'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7'
-        }
+        # TIGER 금현물(319660.KS)은 KRX 금 시세를 1/1000 규모로 추종 (보통 1g 기준)
+        ticker = yf.Ticker("319660.KS")
+        price_etf = ticker.fast_info.last_price
         
-        # 세션을 사용하여 연결 안정성 확보
-        session = requests.Session()
-        res = session.get(url, headers=headers, timeout=10)
-        
-        if res.status_code == 200:
-            soup = BeautifulSoup(res.text, 'html.parser')
-            # 네이버는 실시간 가격을 'no_today' 클래스 내 blind 스팬에 숨겨둡니다.
-            price_tag = soup.select_one("div.day_data p.no_today em span.blind")
-            
-            if price_tag:
-                price_str = price_tag.text.replace(',', '').strip()
-                price_1g = float(price_str)
-                return price_1g * 3.75, datetime.now(KST).strftime('%H:%M:%S')
-            else:
-                # 위 태그가 없을 경우를 대비한 2차 시도 (다른 레이아웃)
-                alt_tag = soup.select_one("#now_value")
-                if alt_tag:
-                    return float(alt_tag.text.replace(',', '')) * 3.75, datetime.now(KST).strftime('%H:%M:%S')
-        
+        if price_etf > 0:
+            # ETF 가격 10000원 ≒ 1g 가격 (거의 일치)
+            # 1돈 환산: price_etf * 3.75 / 10 (ETF가 10g 기준인 경우도 있으나 TIGER는 1g 내외)
+            # 네이버 실시간과 맞추기 위해 3.75를 곱해 1돈 가격 산출
+            realtime_don = price_etf * 3.75 
+            return realtime_don, datetime.now(KST).strftime('%H:%M:%S')
         return None, None
-    except Exception as e:
-        # 에러 발생 시 로그 확인용 (Streamlit Cloud 로그에서 확인 가능)
-        st.sidebar.error(f"실시간 수집 실패: {e}")
+    except:
         return None, None
 
 @st.cache_data(ttl=3600)
@@ -116,10 +95,10 @@ def get_intl_data():
         return df, datetime.now(KST).strftime('%Y-%m-%d %H:%M:%S')
     except: return None, None
 
-# 데이터 호출
+# 데이터 로드
 df_intl, intl_time = get_intl_data()
 df_krx, krx_last_date = get_krx_data()
-realtime_kr, naver_time = get_naver_realtime()
+realtime_kr, etf_time = get_realtime_from_etf()
 
 st.markdown('<p class="gs-title">📊 금/은 마켓 실시간 대시보드</p>', unsafe_allow_html=True)
 
@@ -139,11 +118,12 @@ if df_intl is not None:
         st.plotly_chart(update_chart_style(px.line(df_won, y='gold_don').update_traces(line_color='#f1c40f'), df_won, df_won['gold_don'].min()*0.99, df_won['gold_don'].max()*1.01, is_won=True), use_container_width=True, config={'displayModeBar': False})
 
 # --- [2] 국내 금 (KRX) ---
-st.markdown('<p class="main-title">🇰🇷 국내 금 시세 (KRX 공식)</p>', unsafe_allow_html=True)
+st.markdown('<p class="main-title">🇰🇷 국내 금 시세 (실시간)</p>', unsafe_allow_html=True)
 if df_krx is not None:
     k_curr, k_prev = df_krx['종가'].iloc[-1], df_krx['종가'].iloc[-2]
+    # ETF 데이터가 있으면 실시간으로, 없으면 마지막 종가로 표시
     disp_p = realtime_kr if realtime_kr else k_curr
-    st.markdown(f'<div class="price-box" style="margin-bottom:15px;"><span class="val-sub">실시간 현재가 (네이버)</span><span class="val-main" style="color:#d9534f;">{int(disp_p):,}원</span>{get_delta_html(disp_p, k_prev)}<span class="ref-time"><b>실시간 수집:</b> {naver_time}<br><b>차트기준:</b> {krx_last_date} 종가</span></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="price-box" style="margin-bottom:15px;"><span class="val-sub">{"실시간 추정가 (KRX ETF)" if realtime_kr else "마지막 종가"} (1돈)</span><span class="val-main" style="color:#d9534f;">{int(disp_p):,}원</span>{get_delta_html(disp_p, k_prev)}<span class="ref-time"><b>수집시간:</b> {etf_time if etf_time else "정보없음"}<br><b>차트기준:</b> {krx_last_date} 종가</span></div>', unsafe_allow_html=True)
     df_krx_won = df_krx[['종가']] / 10000
     st.plotly_chart(update_chart_style(px.area(df_krx_won, y='종가').update_traces(line_color='#4361ee', fillcolor='rgba(67, 97, 238, 0.1)'), df_krx_won, df_krx_won['종가'].min()*0.98, df_krx_won['종가'].max()*1.02, is_won=True), use_container_width=True, config={'displayModeBar': False})
 

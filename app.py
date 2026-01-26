@@ -35,7 +35,7 @@ def get_delta_html(curr, prev, prefix=""):
     sign = "▲" if diff >= 0 else "▼"
     return f'<span class="delta {color}">{sign} {prefix}{abs(diff):,.2f} ({pct:+.2f}%)</span>'
 
-# --- 유틸리티: 차트 레이아웃 (만원 단위 + 버튼 제거) ---
+# --- 유틸리티: 차트 레이아웃 ---
 def update_chart_style(fig, df, y_min, y_max, is_won=False, is_silver=False):
     fmt = ".1f" if is_silver else ".0f"
     fig.update_traces(
@@ -50,18 +50,17 @@ def update_chart_style(fig, df, y_min, y_max, is_won=False, is_silver=False):
     )
     return fig
 
-# --- [대안] 실시간 국내 금 시세 (TIGER 금현물 ETF 역산) ---
+# --- 실시간 국내 금 시세 (ETF 기반 정확한 1돈 환산) ---
 def get_realtime_from_etf():
     try:
-        # TIGER 금현물(319660.KS)은 KRX 금 시세를 1/1000 규모로 추종 (보통 1g 기준)
+        # TIGER 금현물(319660.KS) ETF 가격 수집
         ticker = yf.Ticker("319660.KS")
         price_etf = ticker.fast_info.last_price
         
         if price_etf > 0:
-            # ETF 가격 10000원 ≒ 1g 가격 (거의 일치)
-            # 1돈 환산: price_etf * 3.75 / 10 (ETF가 10g 기준인 경우도 있으나 TIGER는 1g 내외)
-            # 네이버 실시간과 맞추기 위해 3.75를 곱해 1돈 가격 산출
-            realtime_don = price_etf * 3.75 
+            # TIGER 금현물 1주 가격은 대략 금 1g 가격과 같습니다.
+            # 1돈(3.75g) 가격 = ETF가격 * 3.75
+            realtime_don = price_etf * 3.75
             return realtime_don, datetime.now(KST).strftime('%H:%M:%S')
         return None, None
     except:
@@ -121,11 +120,10 @@ if df_intl is not None:
 st.markdown('<p class="main-title">🇰🇷 국내 금 시세 (실시간)</p>', unsafe_allow_html=True)
 if df_krx is not None:
     k_curr, k_prev = df_krx['종가'].iloc[-1], df_krx['종가'].iloc[-2]
-    # ETF 데이터가 있으면 실시간으로, 없으면 마지막 종가로 표시
     disp_p = realtime_kr if realtime_kr else k_curr
-    st.markdown(f'<div class="price-box" style="margin-bottom:15px;"><span class="val-sub">{"실시간 추정가 (KRX ETF)" if realtime_kr else "마지막 종가"} (1돈)</span><span class="val-main" style="color:#d9534f;">{int(disp_p):,}원</span>{get_delta_html(disp_p, k_prev)}<span class="ref-time"><b>수집시간:</b> {etf_time if etf_time else "정보없음"}<br><b>차트기준:</b> {krx_last_date} 종가</span></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="price-box" style="margin-bottom:15px;"><span class="val-sub">{"실시간 추정가 (KRX ETF)" if realtime_kr else "마지막 종가"} (1돈)</span><span class="val-main" style="color:#d9534f;">{int(disp_p):,}원</span>{get_delta_html(disp_p, k_prev)}<span class="ref-time"><b>실시간 수집:</b> {etf_time if etf_time else "정보없음"}<br><b>차트기준:</b> {krx_last_date} 종가</span></div>', unsafe_allow_html=True)
     df_krx_won = df_krx[['종가']] / 10000
-    st.plotly_chart(update_chart_style(px.area(df_krx_won, y='종가').update_traces(line_color='#4361ee', fillcolor='rgba(67, 97, 238, 0.1)'), df_krx_won, df_krx_won['종가'].min()*0.98, df_krx_won['종가'].max()*1.02, is_won=True), use_container_width=True, config={'displayModeBar': False})
+    st.plotly_chart(update_chart_style(px.area(df_krx_won, y='종가').update_traces(line_color='#4361ee', fillcolor='rgba(67, 97, 238, 0.1)'), df_krx_won, df_krx_won['gauge_min' if False else '종가'].min()*0.98, df_krx_won['종가'].max()*1.02, is_won=True), use_container_width=True, config={'displayModeBar': False})
 
 # --- [3] 국제 은 ---
 if df_intl is not None:

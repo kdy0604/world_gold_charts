@@ -52,17 +52,25 @@ def update_chart_style(fig, df, y_min, y_max, is_won=False, is_silver=False):
     )
     return fig
 
-# --- 데이터 수집 ---
-def get_naver_realtime():
+# --- 데이터 수집: 네이버 실시간 (KRX 기준) ---
+def get_naver_realtime_krx():
     try:
-        url = "https://finance.naver.com/marketindex/goldDetail.naver"
-        headers = {'User-Agent': 'Mozilla/5.0'}
+        url = "https://m.stock.naver.com/marketindex/metals/M04020000"
+        headers = {"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1"}
         res = requests.get(url, headers=headers, timeout=5)
+        res.encoding = 'utf-8'
         soup = BeautifulSoup(res.text, 'html.parser')
-        price_tag = soup.select_one("div.day_data p.no_today em span.blind")
+        
+        # 클래스 부분 일치로 가격 태그 찾기
+        price_tag = soup.select_one("strong[class*='DetailInfo_price']")
         if price_tag:
-            return float(price_tag.text.replace(',', '')) * 3.75, datetime.now(KST).strftime('%H:%M:%S')
-    except: pass
+            raw_text = price_tag.get_text(strip=True)
+            # "원/g" 잘라내기 로직
+            clean_text = raw_text.split('원')[0].replace(',', '')
+            price_1g = float(clean_text)
+            return price_1g * 3.75, datetime.now(KST).strftime('%H:%M:%S')
+    except Exception as e:
+        print(f"Naver Scraping Error: {e}")
     return None, None
 
 @st.cache_data(ttl=3600)
@@ -70,7 +78,6 @@ def get_krx_data():
     try:
         url = "https://apis.data.go.kr/1160100/service/GetGeneralProductInfoService/getGoldPriceInfo"
         raw_key = "ca42a8df54920a2536a7e5c4efe6594b2265a445a39ebc36244d108c5ae9e87a"
-        # 3개월치(영업일 기준 약 65~70일)를 위해 numOfRows를 90으로 조정
         res = requests.get(url, params={'serviceKey': unquote(raw_key), 'numOfRows': '90', 'resultType': 'xml'}, timeout=10)
         root = ET.fromstring(res.content)
         data_list = []
@@ -98,93 +105,58 @@ def get_intl_data():
 # 실행 로직
 df_intl, intl_time = get_intl_data()
 df_krx, krx_last_date = get_krx_data()
-realtime_kr, naver_time = get_naver_realtime()
+realtime_kr, naver_time = get_naver_realtime_krx()
 
 st.markdown('<p class="gs-title">📊 금/은 마켓 실시간 대시보드</p>', unsafe_allow_html=True)
 
+# 1. 환율 및 국제 시세 (기존과 동일)
 if df_intl is not None:
     curr, prev = df_intl.iloc[-1], df_intl.iloc[-2]
     st.markdown(f'<div class="fx-container"><span style="font-weight:700;">원/달러 환율</span><div style="text-align:right;"><span style="font-size:16px; font-weight:800;">{curr["ex"]:,.2f}원</span><br>{get_delta_html(curr["ex"], prev["ex"])}</div></div>', unsafe_allow_html=True)
 
-    # 국제 금
     st.markdown('<p class="main-title">🟡 국제 금 시세 (Gold)</p>', unsafe_allow_html=True)
     st.markdown(f'<div class="mobile-row"><div class="price-box"><span class="val-sub">국제 (1oz)</span><span class="val-main">${curr["gold"]:,.1f}</span>{get_delta_html(curr["gold"], prev["gold"], "$")}</div><div class="price-box"><span class="val-sub">국내환산 (1돈)</span><span class="val-main">{int(curr["gold_don"]):,}원</span>{get_delta_html(curr["gold_don"], prev["gold_don"])}</div></div><p class="ref-time-integrated">수집기준: {intl_time} (환율포함)</p>', unsafe_allow_html=True)
+    
     t1, t2 = st.tabs(["$/oz 차트", "₩/돈 차트"])
     with t1: st.plotly_chart(update_chart_style(px.line(df_intl, y='gold'), df_intl, df_intl['gold'].min()*0.99, df_intl['gold'].max()*1.01), use_container_width=True, config={'displayModeBar': False})
     with t2:
         df_won = df_intl[['gold_don']] / 10000
         st.plotly_chart(update_chart_style(px.line(df_won, y='gold_don').update_traces(line_color='#f1c40f'), df_won, df_won['gold_don'].min()*0.99, df_won['gold_don'].max()*1.01, is_won=True), use_container_width=True, config={'displayModeBar': False})
 
-# 국내 금 (3개월 최적화)
+# 2. 국내 금 (실시간 반영 수정)
 if df_krx is not None:
-    st.markdown('<p class="main-title">🇰🇷 국내 금 시세 (KRX 공식)</p>', unsafe_allow_html=True)
-    k_curr, k_prev = df_krx['종가'].iloc[-1], df_krx['종가'].iloc[-2]
-    disp_p = realtime_kr if realtime_kr else k_curr
-    st.markdown(f'<div class="price-box"><span class="val-sub">{"실시간(네이버)" if realtime_kr else "마지막 종가"} (1돈)</span><span class="val-main" style="color:#d9534f; font-size:20px;">{int(disp_p):,}원</span>{get_delta_html(disp_p, k_prev)}</div><p class="ref-time-integrated">실시간: {naver_time if naver_time else "연결지연"} / 차트: {krx_last_date} (최근 3개월)</p>', unsafe_allow_html=True)
+    st.markdown('<p class="main-title">🇰🇷 국내 금 시세 (KRX 기준)</p>', unsafe_allow_html=True)
+    
+    # 전일 종가 데이터
+    k_curr_close = df_krx['종가'].iloc[-1]
+    k_prev_close = df_krx['종가'].iloc[-2]
+    
+    # 표시 가격 결정 (실시간이 있으면 실시간, 없으면 전일 종가)
+    disp_p = realtime_kr if realtime_kr else k_curr_close
+    
+    # 실시간 여부에 따른 라벨
+    label = "실시간(네이버/KRX)" if realtime_kr else "전일 종가(KRX)"
+    
+    st.markdown(f'''
+        <div class="price-box">
+            <span class="val-sub">{label} (1돈)</span>
+            <span class="val-main" style="color:#d9534f; font-size:20px;">{int(disp_p):,}원</span>
+            {get_delta_html(disp_p, k_prev_close)}
+        </div>
+        <p class="ref-time-integrated">실시간: {naver_time if naver_time else "연결지연"} / 차트: {krx_last_date} (최근 종가 기준)</p>
+    ''', unsafe_allow_html=True)
+    
+    # 차트는 공식 KRX 종가 데이터로 그림
     df_krx_won = df_krx[['종가']] / 10000
     st.plotly_chart(update_chart_style(px.area(df_krx_won, y='종가').update_traces(line_color='#4361ee', fillcolor='rgba(67, 97, 238, 0.1)'), df_krx_won, df_krx_won['종가'].min()*0.98, df_krx_won['종가'].max()*1.02, is_won=True), use_container_width=True, config={'displayModeBar': False})
 
-# 국제 은
+# 3. 국제 은 (기존과 동일)
 if df_intl is not None:
     st.markdown('<p class="main-title">⚪ 국제 은 시세 (Silver)</p>', unsafe_allow_html=True)
     st.markdown(f'<div class="mobile-row"><div class="price-box"><span class="val-sub">국제 (1oz)</span><span class="val-main">${curr["silver"]:,.2f}</span>{get_delta_html(curr["silver"], prev["silver"], "$")}</div><div class="price-box"><span class="val-sub">국내환산 (1돈)</span><span class="val-main">{int(curr["silver_don"]):,}원</span>{get_delta_html(curr["silver_don"], prev["silver_don"])}</div></div><p class="ref-time-integrated">수집기준: {intl_time}</p>', unsafe_allow_html=True)
+    
     s1, s2 = st.tabs(["$/oz 차트", "₩/돈 차트"])
     with s1: st.plotly_chart(update_chart_style(px.line(df_intl, y='silver').update_traces(line_color='#adb5bd'), df_intl, df_intl['silver'].min()*0.95, df_intl['silver'].max()*1.05), use_container_width=True, config={'displayModeBar': False})
     with s2:
         df_sv_won = df_intl[['silver_don']] / 10000
         st.plotly_chart(update_chart_style(px.line(df_sv_won, y='silver_don').update_traces(line_color='#adb5bd'), df_sv_won, df_sv_won['silver_don'].min()*0.95, df_sv_won['silver_don'].max()*1.05, is_won=True, is_silver=True), use_container_width=True, config={'displayModeBar': False})
-
-
-import streamlit as st
-import requests
-import pandas as pd
-from datetime import datetime
-
-@st.cache_data(ttl=10)
-def fetch_goodgold_realtime():
-    # 굿골드가 데이터를 실시간으로 받아오는 코스콤 API 주소입니다.
-    url = "https://cyberir.koscom.co.kr/cyberir/main/mainGoldPrc.do"
-    headers = {
-        "User-Agent": "Mozilla/5.0",
-        "Referer": "https://cyberir.koscom.co.kr/cyberir/main.do?custId=goodgold&pagePart=1",
-        "X-Requested-With": "XMLHttpRequest"
-    }
-    
-    try:
-        # POST 방식으로 요청해야 데이터를 줍니다.
-        resp = requests.post(url, headers=headers, timeout=5)
-        data = resp.json()
-        
-        # 데이터 구조에서 현재가(1g)와 전일대비 가격 추출
-        # data['goldPrcList'][0]에 실시간 정보가 들어있음
-        item = data['goldPrcList'][0]
-        
-        return {
-            "price_1g": float(item['trdPrc']), # 현재가
-            "change": float(item['cmprPrev']), # 전일대비
-            "time": item['trdTm'] # 거래시간
-        }
-    except Exception as e:
-        return None
-
-st.markdown('<p class="main-title">📍 굿골드 실시간 시세 (돈당 원)</p>', unsafe_allow_html=True)
-
-gg_data = fetch_goodgold_realtime()
-
-if gg_data:
-    # 1돈(3.75g) 환산
-    price_don = gg_data['price_1g'] * 3.75
-    change_don = gg_data['change'] * 3.75
-    
-    st.markdown(f'''
-        <div class="price-box" style="width:100%; border-left: 5px solid #2ecc71; background-color: #f0fff4;">
-            <span class="val-sub">굿골드 코스콤 실시간 (1돈)</span>
-            <span class="val-main" style="color:#27ae60; font-size:20px;">{int(price_don):,}원</span>
-            <span class="delta {"up" if change_don >= 0 else "down"}">
-                {"▲" if change_don >= 0 else "▼"} {abs(change_don):,.1f}
-            </span>
-        </div>
-        <p class="ref-time-integrated">갱신시간: {gg_data['time']} (데이터 출처: 굿골드/코스콤)</p>
-    ''', unsafe_allow_html=True)
-else:
-    st.error("굿골드 데이터를 가져오는 데 실패했습니다.")

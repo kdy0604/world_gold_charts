@@ -123,17 +123,6 @@ if df_intl is not None:
         df_won = df_intl[['gold_don']] / 10000
         st.plotly_chart(update_chart_style(px.line(df_won, y='gold_don').update_traces(line_color='#f1c40f'), df_won, df_won['gold_don'].min()*0.99, df_won['gold_don'].max()*1.01, is_won=True), use_container_width=True, config={'displayModeBar': False})
 
-# 2. 국내 금 (실시간 반영 수정)
-국내 금 시세 차트의 마지막 지점에 네이버에서 가져온 실시간 가격을 강제로 이어 붙여서, 차트가 오늘 시세까지 그려지도록 수정했습니다.
-
-기존 KRX API 데이터는 어제 종가까지만 나오기 때문에, 데이터프레임(df_krx)의 마지막에 오늘 날짜와 실시간 가격을 추가하는 로직을 넣었습니다.
-
-🛠️ 실시간 차트 반영 수정 코드
-# 2. 국내 금 섹션 이전의 데이터 처리 로직을 다음과 같이 수정하여 적용해 보세요.
-
-Python
-
-# --- (앞부분 생략: 이전 코드와 동일) ---
 
 # 2. 국내 금 (실시간 데이터 차트 반영 수정)
 if df_krx is not None:
@@ -177,7 +166,8 @@ if df_krx is not None:
     
     # 차트 스타일 업데이트 및 출력
     st.plotly_chart(update_chart_style(fig_krx, df_krx_won, df_krx_won['종가'].min()*0.98, df_krx_won['종가'].max()*1.02, is_won=True), use_container_width=True, config={'displayModeBar': False})
-    
+
+
 # 3. 국제 은 (기존과 동일)
 if df_intl is not None:
     st.markdown('<p class="main-title">⚪ 국제 은 시세 (Silver)</p>', unsafe_allow_html=True)

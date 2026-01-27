@@ -141,9 +141,19 @@ if df_intl is not None:
     t1, t2 = st.tabs(["$/oz 차트", "₩/돈 차트"])
     with t1: st.plotly_chart(update_chart_style(px.line(df_intl, y='gold'), df_intl, df_intl['gold'].min()*0.99, df_intl['gold'].max()*1.01), use_container_width=True, config={'displayModeBar': False})
     with t2:
-        df_won = df_intl[['gold_don']] / 10000
-        st.plotly_chart(update_chart_style(px.line(df_won, y='gold_don').update_traces(line_color='#f1c40f'), df_won, df_won['gold_don'].min()*0.99, df_won['gold_don'].max()*1.01, is_won=True), use_container_width=True, config={'displayModeBar': False})
-
+    # 차트용 데이터 (축 표시용 만 단위)
+    df_won = df_intl[['gold_don']] / 10000
+    fig_intl_gold = px.line(df_won, y='gold_don')
+    
+    # [수정포인트] 원본 원화 가격(gold_don)을 customdata로 주입
+    fig_intl_gold.update_traces(
+        line_color='#f1c40f',
+        customdata=df_intl[['gold_don']] # 원본 데이터프레임의 돈당 가격 전달
+    )
+    
+    st.plotly_chart(update_chart_style(
+        fig_intl_gold, df_won, df_won['gold_don'].min()*0.99, df_won['gold_don'].max()*1.01, is_won=True
+    ), use_container_width=True, config={'displayModeBar': False})
 
 # 2. 국내 금 (실시간 데이터 차트 반영 수정)
 if df_krx is not None:
@@ -202,5 +212,16 @@ if df_intl is not None:
     s1, s2 = st.tabs(["$/oz 차트", "₩/돈 차트"])
     with s1: st.plotly_chart(update_chart_style(px.line(df_intl, y='silver').update_traces(line_color='#adb5bd'), df_intl, df_intl['silver'].min()*0.95, df_intl['silver'].max()*1.05), use_container_width=True, config={'displayModeBar': False})
     with s2:
-        df_sv_won = df_intl[['silver_don']] / 10000
-        st.plotly_chart(update_chart_style(px.line(df_sv_won, y='silver_don').update_traces(line_color='#adb5bd'), df_sv_won, df_sv_won['silver_don'].min()*0.95, df_sv_won['silver_don'].max()*1.05, is_won=True, is_silver=True), use_container_width=True, config={'displayModeBar': False})
+    # 차트용 데이터 (축 표시용 만 단위)
+    df_sv_won = df_intl[['silver_don']] / 10000
+    fig_intl_silver = px.line(df_sv_won, y='silver_don')
+    
+    # [수정포인트] 원본 원화 가격(silver_don)을 customdata로 주입
+    fig_intl_silver.update_traces(
+        line_color='#adb5bd',
+        customdata=df_intl[['silver_don']] # 원본 데이터프레임의 돈당 가격 전달
+    )
+    
+    st.plotly_chart(update_chart_style(
+        fig_intl_silver, df_sv_won, df_sv_won['silver_don'].min()*0.95, df_sv_won['silver_don'].max()*1.05, is_won=True, is_silver=True
+    ), use_container_width=True, config={'displayModeBar': False})

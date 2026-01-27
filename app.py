@@ -40,15 +40,36 @@ def get_delta_html(curr, prev, prefix=""):
 # --- 유틸리티: 차트 레이아웃 ---
 def update_chart_style(fig, df, y_min, y_max, is_won=False, is_silver=False):
     if is_won:
-        custom_hover = "날짜: %{x}<br>가격: %{y:.1f}만<extra></extra>" if is_silver else "날짜: %{x}<br>가격: %{y:.0f}만<extra></extra>"
+        # 축은 '만' 단위로 보이지만, 실제 툴팁(hover)은 원본 데이터(customdata)를 참조하여 '원' 단위로 표시
+        custom_hover = "날짜: %{x}<br>가격: %{customdata:,.0f}원<extra></extra>"
     else:
         custom_hover = "날짜: %{x}<br>가격: %{y:,.2f}<extra></extra>"
-    fig.update_traces(mode='lines+markers', marker=dict(size=4), connectgaps=True, hovertemplate=custom_hover)
+        
+    fig.update_traces(
+        mode='lines+markers', 
+        marker=dict(size=4), 
+        connectgaps=True, 
+        hovertemplate=custom_hover
+    )
+    
     fig.update_layout(
         height=280, margin=dict(l=0, r=10, t=10, b=0),
-        yaxis=dict(range=[y_min, y_max], fixedrange=True, title=None, ticksuffix="만" if is_won else ""),
-        xaxis=dict(range=[df.index.min(), df.index.max()], fixedrange=True, title=None, type='date', tickformat='%m-%d'),
-        dragmode=False, hovermode="x unified", template="plotly_white"
+        yaxis=dict(
+            range=[y_min, y_max], 
+            fixedrange=True, 
+            title=None, 
+            ticksuffix="만" if is_won else ""
+        ),
+        xaxis=dict(
+            range=[df.index.min(), df.index.max()], 
+            fixedrange=True, 
+            title=None, 
+            type='date', 
+            tickformat='%m-%d'
+        ),
+        dragmode=False, 
+        hovermode="x unified", 
+        template="plotly_white"
     )
     return fig
 
@@ -160,10 +181,15 @@ if df_krx is not None:
     # 실시간 가격이 포함된 데이터로 차트 그리기 (단위: 만원)
     df_krx_won = df_krx_with_live[['종가']] / 10000
     
-    # 차트 생성
+    # 차트 생성 시 원본 가격(원 단위)을 custom_data로 넘겨줌
     fig_krx = px.area(df_krx_won, y='종가')
-    fig_krx.update_traces(line_color='#4361ee', fillcolor='rgba(67, 97, 238, 0.1)')
+    fig_krx.update_traces(
+        line_color='#4361ee', 
+        fillcolor='rgba(67, 97, 238, 0.1)',
+        customdata=df_krx_with_live['종가'] # 여기서 원본 '원' 단위 데이터를 주입
+    )
     
+      
     # 차트 스타일 업데이트 및 출력
     st.plotly_chart(update_chart_style(fig_krx, df_krx_won, df_krx_won['종가'].min()*0.98, df_krx_won['종가'].max()*1.02, is_won=True), use_container_width=True, config={'displayModeBar': False})
 

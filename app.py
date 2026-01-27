@@ -124,32 +124,60 @@ if df_intl is not None:
         st.plotly_chart(update_chart_style(px.line(df_won, y='gold_don').update_traces(line_color='#f1c40f'), df_won, df_won['gold_don'].min()*0.99, df_won['gold_don'].max()*1.01, is_won=True), use_container_width=True, config={'displayModeBar': False})
 
 # 2. 국내 금 (실시간 반영 수정)
+국내 금 시세 차트의 마지막 지점에 네이버에서 가져온 실시간 가격을 강제로 이어 붙여서, 차트가 오늘 시세까지 그려지도록 수정했습니다.
+
+기존 KRX API 데이터는 어제 종가까지만 나오기 때문에, 데이터프레임(df_krx)의 마지막에 오늘 날짜와 실시간 가격을 추가하는 로직을 넣었습니다.
+
+🛠️ 실시간 차트 반영 수정 코드
+# 2. 국내 금 섹션 이전의 데이터 처리 로직을 다음과 같이 수정하여 적용해 보세요.
+
+Python
+
+# --- (앞부분 생략: 이전 코드와 동일) ---
+
+# 2. 국내 금 (실시간 데이터 차트 반영 수정)
 if df_krx is not None:
     st.markdown('<p class="main-title">🇰🇷 국내 금 시세 (KRX 기준)</p>', unsafe_allow_html=True)
     
-    # 전일 종가 데이터
-    k_curr_close = df_krx['종가'].iloc[-1]
-    k_prev_close = df_krx['종가'].iloc[-2]
+    # 전일 종가 데이터 (등락 계산용)
+    k_prev_close = df_krx['종가'].iloc[-1]
     
-    # 표시 가격 결정 (실시간이 있으면 실시간, 없으면 전일 종가)
-    disp_p = realtime_kr if realtime_kr else k_curr_close
+    # 데이터프레임 복사 후 실시간 가격 추가 (차트 반영용)
+    df_krx_with_live = df_krx.copy()
     
-    # 실시간 여부에 따른 라벨
-    label = "실시간(네이버/KRX)" if realtime_kr else "전일 종가(KRX)"
-    
+    if realtime_kr:
+        # 오늘 날짜 생성 (시간 제외한 날짜 기준)
+        today_dt = pd.to_datetime(datetime.now(KST).strftime('%Y-%m-%d'))
+        
+        # 만약 오늘 데이터가 이미 있다면 업데이트, 없다면 새로 추가
+        df_krx_with_live.loc[today_dt] = realtime_kr
+        df_krx_with_live = df_krx_with_live.sort_index()
+        
+        disp_p = realtime_kr
+        label = "실시간(네이버/KRX)"
+    else:
+        disp_p = k_prev_close
+        label = "전일 종가(KRX)"
+
     st.markdown(f'''
         <div class="price-box">
             <span class="val-sub">{label} (1돈)</span>
             <span class="val-main" style="color:#d9534f; font-size:20px;">{int(disp_p):,}원</span>
             {get_delta_html(disp_p, k_prev_close)}
         </div>
-        <p class="ref-time-integrated">실시간: {naver_time if naver_time else "연결지연"} / 차트: {krx_last_date} (최근 종가 기준)</p>
+        <p class="ref-time-integrated">실시간: {naver_time if naver_time else "연결지연"} / 차트 마지막: {today_dt.strftime('%m-%d') if realtime_kr else krx_last_date}</p>
     ''', unsafe_allow_html=True)
     
-    # 차트는 공식 KRX 종가 데이터로 그림
-    df_krx_won = df_krx[['종가']] / 10000
-    st.plotly_chart(update_chart_style(px.area(df_krx_won, y='종가').update_traces(line_color='#4361ee', fillcolor='rgba(67, 97, 238, 0.1)'), df_krx_won, df_krx_won['종가'].min()*0.98, df_krx_won['종가'].max()*1.02, is_won=True), use_container_width=True, config={'displayModeBar': False})
-
+    # 실시간 가격이 포함된 데이터로 차트 그리기 (단위: 만원)
+    df_krx_won = df_krx_with_live[['종가']] / 10000
+    
+    # 차트 생성
+    fig_krx = px.area(df_krx_won, y='종가')
+    fig_krx.update_traces(line_color='#4361ee', fillcolor='rgba(67, 97, 238, 0.1)')
+    
+    # 차트 스타일 업데이트 및 출력
+    st.plotly_chart(update_chart_style(fig_krx, df_krx_won, df_krx_won['종가'].min()*0.98, df_krx_won['종가'].max()*1.02, is_won=True), use_container_width=True, config={'displayModeBar': False})
+    
 # 3. 국제 은 (기존과 동일)
 if df_intl is not None:
     st.markdown('<p class="main-title">⚪ 국제 은 시세 (Silver)</p>', unsafe_allow_html=True)

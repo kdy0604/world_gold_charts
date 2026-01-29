@@ -2,85 +2,104 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import requests
+from bs4 import BeautifulSoup
 from datetime import datetime
 import pytz
 
-# 1. 페이지 설정
+# 1. 페이지 설정 및 스타일
 st.set_page_config(page_title="제네바시계 마켓 대시보드", layout="centered")
 KST = pytz.timezone('Asia/Seoul')
 
-# 2. 데이터 수집 함수 (네이버 내부 API 활용)
-@st.cache_data(ttl=300)
-def get_naver_gold_history():
-    # 네이버 국제금(GCcv1) 일별 시세 API (최근 30일치)
-    url = "https://pollux.stock.naver.com/api/jsonp/marketindex/getMarketIndexDay.nhn?marketindexCd=G_GC%40COMEX&pageSize=30&page=1"
-    
-    headers = {"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15.0)"}
-    res = requests.get(url, headers=headers)
-    
-    # JSONP 형식을 JSON으로 변환
-    content = res.text
-    json_data = eval(content[content.find('(')+1 : content.rfind(')')])
-    
-    data_list = []
-    for item in json_data['result']:
-        data_list.append({
-            '날짜': pd.to_datetime(item['localTrdDt']),
-            '종가': float(item['closePrice'].replace(',', ''))
-        })
-    
-    df = pd.DataFrame(data_list).set_index('날짜').sort_index()
-    return df
+st.markdown("""
+    <style>
+    .gs-title { font-size: 20px; font-weight: 800; color: #1e1e1e; }
+    .price-box { background-color: #f8f9fa; padding: 15px; border-radius: 12px; border: 1px solid #eee; text-align: center; }
+    .val-main { font-size: 22px; font-weight: 800; color: #d9534f; }
+    .delta { font-size: 12px; font-weight: 600; }
+    .up { color: #d9534f; } .down { color: #0275d8; }
+    </style>
+    """, unsafe_allow_html=True)
 
-# 3. 환율 수집
-def get_current_fx():
-    url = "https://marketindex.naver.com/api/iuser/marketindex/getChartData.nhn?marketindexCd=FX_USDKRW&periodType=day"
-    res = requests.get(url).json()
-    return float(res['result'][-1]['closePrice'])
+# 2. 네이버 공식 정산가 수집 (스크래핑 방식 - 더 안정적)
+@st.cache_data(ttl=600)
+def get_naver_gold_official():
+    try:
+        data_list = []
+        # 최근 2페이지를 긁어 약 20거래일(한 달치) 확보
+        for page in range(1, 3):
+            url = f"https://finance.naver.com/marketindex/worldDailyQuote.naver?fdtc=2&marketindexCd=G_GC@COMEX&page={page}"
+            res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
+            soup = BeautifulSoup(res.text, 'html.parser')
+            rows = soup.select('table.tbl_exchange tr')
+            
+            for row in rows:
+                cols = row.select('td')
+                if len(cols) >= 2:
+                    date = pd.to_datetime(cols[0].text.strip())
+                    price = float(cols[1].text.strip().replace(',', ''))
+                    data_list.append({'날짜': date, '종가': price})
+        
+        df = pd.DataFrame(data_list).drop_duplicates('날짜').set_index('날짜').sort_index()
+        return df
+    except:
+        return None
 
-# --- 실행 로직 ---
-try:
-    # 데이터 로드
-    df_gold = get_naver_gold_history()
-    fx_rate = get_current_fx()
-    
-    # 금 돈당 원화 환산 (공식 정산가 기준)
-    df_gold['won_don'] = (df_gold['종가'] / 31.1034) * fx_rate * 3.75
-    
-    st.markdown("### 🟡 국제 금 시세 (네이버 공식 데이터)")
-    st.write(f"현재 적용 환율: **{fx_rate:,.2f}원**")
+# 3. 실시간 환율 수집
+def get_fx_rate():
+    try:
+        url = "https://marketindex.naver.com/index.naver"
+        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
+        soup = BeautifulSoup(res.text, 'html.parser')
+        return float(soup.select_one("span.value").text.replace(',', ''))
+    except:
+        return 1350.0 # 실패 시 기본값
 
-    # 상단 요약 박스
+# --- 메인 실행 ---
+df_gold = get_naver_gold_official()
+fx = get_fx_rate()
+
+if df_gold is not None:
+    # 원화 환산 (돈당 가격)
+    df_gold['won_don'] = (df_gold['종가'] / 31.1034) * fx * 3.75
+    
     curr_p = df_gold['종가'].iloc[-1]
     prev_p = df_gold['종가'].iloc[-2]
     curr_won = df_gold['won_don'].iloc[-1]
     
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric("국제 정산가 ($/oz)", f"${curr_p:,.1f}", f"{curr_p - prev_p:+.1f}")
-    with col2:
-        st.metric("국내 환산가 (₩/돈)", f"{int(curr_won):,}원")
+    st.markdown('<p class="gs-title">🟡 국제 금 (네이버 공식 정산가)</p>', unsafe_allow_html=True)
+    
+    # 상단 요약 박스
+    diff = curr_p - prev_p
+    color = "up" if diff >= 0 else "down"
+    sign = "▲" if diff >= 0 else "▼"
+    
+    st.markdown(f"""
+    <div class="price-box">
+        <div style="font-size:12px; color:#666;">공식 종가: ${curr_p:,.2f} <span class="{color}">{sign}{abs(diff):,.2f}</span></div>
+        <div style="font-size:13px; margin-top:5px;">국내 환산가 (1돈)</div>
+        <div class="val-main">{int(curr_won):,}원</div>
+        <div style="font-size:11px; color:#999; margin-top:5px;">기준 환율: {fx:,.2f}원</div>
+    </div>
+    """, unsafe_allow_html=True)
 
-    # 차트 구성
-    # [수정포인트] 터치 시 금액이 나오도록 customdata 설정
-    fig = px.line(df_gold, y='won_don', markers=True, 
-                  title="최근 30일 원화 환산가 추이 (정산가 기준)")
+    # 4. 차트 (금액 표시 기능 포함)
+    fig = px.line(df_gold, y='won_don', markers=True)
     
     fig.update_traces(
         line_color='#f1c40f',
-        customdata=df_gold[['won_don']], 
+        customdata=df_gold[['won_don']],
         hovertemplate="날짜: %{x}<br>가격: %{customdata[0]:,.0f}원<extra></extra>"
     )
     
     fig.update_layout(
-        hovermode="x unified",
+        height=350,
+        margin=dict(l=0, r=0, t=20, b=0),
         template="plotly_white",
-        yaxis_title=None,
-        xaxis_title=None,
-        margin=dict(l=0, r=0, t=40, b=0)
+        hovermode="x unified",
+        yaxis=dict(fixedrange=True, title=None),
+        xaxis=dict(fixedrange=True, title=None, tickformat='%m-%d')
     )
     
-    st.plotly_chart(fig, use_container_width=True)
-
-except Exception as e:
-    st.error(f"데이터를 불러오는 중 오류가 발생했습니다: {e}")
+    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+else:
+    st.error("네이버에서 데이터를 가져올 수 없습니다. 잠시 후 다시 시도해주세요.")

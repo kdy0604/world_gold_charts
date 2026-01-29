@@ -12,6 +12,7 @@ from bs4 import BeautifulSoup
 # 1. 페이지 설정 및 스타일
 st.set_page_config(page_title="제네바시계 마켓 대시보드", layout="centered")
 KST = pytz.timezone('Asia/Seoul')
+NYT = pytz.timezone('America/New_York')
 
 st.markdown("""
     <style>
@@ -38,12 +39,8 @@ def get_delta_html(curr, prev, prefix=""):
     return f'<span class="delta {color}">{sign}{prefix}{abs(diff):,.1f}({pct:+.2f}%)</span>'
 
 # --- 유틸리티: 차트 레이아웃 ---
-def update_chart_style(fig, df, y_min, y_max, is_won=False, is_silver=False):
-    if is_won:
-        # customdata[0]을 사용하여 툴팁에는 '원' 단위 전체 금액 표시
-        custom_hover = "날짜: %{x}<br>가격: %{customdata[0]:,.0f}원<extra></extra>"
-    else:
-        custom_hover = "날짜: %{x}<br>가격: %{y:,.2f}<extra></extra>"
+def update_chart_style(fig, df, y_min, y_max, is_won=False):
+    custom_hover = "날짜: %{x}<br>가격: %{customdata[0]:,.0f}원<extra></extra>" if is_won else "날짜: %{x}<br>가격: %{y:,.2f}<extra></extra>"
     fig.update_traces(mode='lines+markers', marker=dict(size=4), connectgaps=True, hovertemplate=custom_hover)
     fig.update_layout(
         height=280, margin=dict(l=0, r=10, t=10, b=0),
@@ -84,36 +81,25 @@ def get_krx_data():
     return None, None
 
 @st.cache_data(ttl=120)
-def get_intl_data_settlement():
+def get_intl_data():
     try:
-        # 1. 1시간 단위(1h)로 데이터를 넉넉하게 가져옴 (1시 30분 가격 추출용)
-        # 3.75(돈) 환산을 위해 환율(KRW=X)도 함께 가져옵니다.
-        raw_df = yf.download(["GC=F", "SI=F", "KRW=X"], period="3mo", interval="1h", progress=False)['Close']
-        raw_df.index = raw_df.index.tz_convert('America/New_York') # 뉴욕 시간으로 변환
+        # 1. 1시간 단위 데이터를 가져와서 뉴욕 13:00(정산 시점) 데이터만 추출
+        raw = yf.download(["GC=F", "SI=F", "KRW=X"], period="3mo", interval="1h", progress=False)['Close']
+        raw.index = raw.index.tz_convert(NYT)
+        df = raw[raw.index.hour == 13].copy()
+        df.index = df.index.date
+        df = df.rename(columns={"GC=F": "gold", "SI=F": "silver", "KRW=X": "ex"}).ffill()
         
-        # 2. 매일 뉴욕 시간 오후 1시(13:00) 데이터만 필터링 (공식 정산가 시점)
-        # 이 시점의 가격이 네이버나 TradingCharts의 종가와 가장 가깝습니다.
-        df_daily = raw_df[raw_df.index.hour == 13].copy()
-        df_daily.index = df_daily.index.date # 시/분 제거하고 날짜만 남김
-        df_daily = df_daily.rename(columns={"GC=F": "gold", "SI=F": "silver", "KRW=X": "ex"}).ffill()
-
-        # 3. 오늘 데이터는 실시간 반영 (요청하신 조건)
+        # 2. 오늘 실시간 데이터 주입
+        today_ny = datetime.now(NYT).date()
         for t, col in zip(["GC=F", "SI=F", "KRW=X"], ["gold", "silver", "ex"]):
-            live_price = yf.Ticker(t).fast_info.last_price
-            if live_price > 0:
-                # 마지막 행이 오늘 날짜가 아니면 추가, 맞으면 업데이트
-                today_date = datetime.now(pytz.timezone('America/New_York')).date()
-                df_daily.loc[today_date, col] = live_price
-
-        # 4. 원화 환산
-        df_daily['gold_don'] = (df_daily['gold'] / 31.1034) * df_daily['ex'] * 3.75
-        df_daily['silver_don'] = (df_daily['silver'] / 31.1034) * df_daily['ex'] * 3.75
+            live = yf.Ticker(t).fast_info.last_price
+            if live > 0: df.loc[today_ny, col] = live
         
-        return df_daily.dropna(), datetime.now(KST).strftime('%m-%d %H:%M')
-    except Exception as e:
-        st.error(f"데이터 추출 오류: {e}")
-        return None, None
-
+        df['gold_don'] = (df['gold'] / 31.1034) * df['ex'] * 3.75
+        df['silver_don'] = (df['silver'] / 31.1034) * df['ex'] * 3.75
+        return df.dropna(), datetime.now(KST).strftime('%m-%d %H:%M')
+    except: return None, None
 
 # 데이터 실행
 df_intl, intl_time = get_intl_data()
@@ -127,7 +113,7 @@ if df_intl is not None:
     curr, prev = df_intl.iloc[-1], df_intl.iloc[-2]
     st.markdown(f'<div class="fx-container"><span style="font-weight:700;">원/달러 환율</span><div style="text-align:right;"><span style="font-size:16px; font-weight:800;">{curr["ex"]:,.2f}원</span><br>{get_delta_html(curr["ex"], prev["ex"])}</div></div>', unsafe_allow_html=True)
 
-    st.markdown('<p class="main-title">🟡 국제 금 시세 (Gold)</p>', unsafe_allow_html=True)
+    st.markdown('<p class="main-title">🟡 국제 금 시세 (13:30 정산 기준)</p>', unsafe_allow_html=True)
     st.markdown(f'<div class="mobile-row"><div class="price-box"><span class="val-sub">국제 (1oz)</span><span class="val-main">${curr["gold"]:,.1f}</span>{get_delta_html(curr["gold"], prev["gold"], "$")}</div><div class="price-box"><span class="val-sub">국내환산 (1돈)</span><span class="val-main">{int(curr["gold_don"]):,}원</span>{get_delta_html(curr["gold_don"], prev["gold_don"])}</div></div><p class="ref-time-integrated">수집기준: {intl_time}</p>', unsafe_allow_html=True)
     
     t1, t2 = st.tabs(["$/oz 차트", "₩/돈 차트"])
@@ -138,7 +124,7 @@ if df_intl is not None:
         fig_g_won = px.line(df_won, y='gold_don').update_traces(line_color='#f1c40f', customdata=df_intl[['gold_don']])
         st.plotly_chart(update_chart_style(fig_g_won, df_won, df_won['gold_don'].min()*0.99, df_won['gold_don'].max()*1.01, is_won=True), use_container_width=True, config={'displayModeBar': False})
 
-# 2. 국내 금 시세 (실시간 반영)
+# 2. 국내 금 시세
 if df_krx is not None:
     st.markdown('<p class="main-title">🇰🇷 국내 금 시세 (KRX 기준)</p>', unsafe_allow_html=True)
     k_prev = df_krx['종가'].iloc[-1]
@@ -149,7 +135,7 @@ if df_krx is not None:
         disp_p = realtime_kr
     else: disp_p = k_prev
     
-    st.markdown(f'<div class="price-box"><span class="val-sub">실시간(네이버/KRX) (1돈)</span><span class="val-main" style="color:#d9534f; font-size:20px;">{int(disp_p):,}원</span>{get_delta_html(disp_p, k_prev)}</div><p class="ref-time-integrated">실시간: {naver_time if naver_time else "연결지연"} / 차트: {krx_last_date}</p>', unsafe_allow_html=True)
+    st.markdown(f'<div class="price-box"><span class="val-sub">실시간(네이버) (1돈)</span><span class="val-main" style="color:#d9534f; font-size:20px;">{int(disp_p):,}원</span>{get_delta_html(disp_p, k_prev)}</div><p class="ref-time-integrated">실시간: {naver_time if naver_time else "연결지연"}</p>', unsafe_allow_html=True)
     
     df_krx_won = df_krx_live[['종가']] / 10000
     fig_krx = px.area(df_krx_won, y='종가').update_traces(line_color='#4361ee', fillcolor='rgba(67, 97, 238, 0.1)', customdata=df_krx_live[['종가']])
@@ -157,8 +143,8 @@ if df_krx is not None:
 
 # 3. 국제 은 시세
 if df_intl is not None:
-    st.markdown('<p class="main-title">⚪ 국제 은 시세 (Silver)</p>', unsafe_allow_html=True)
-    st.markdown(f'<div class="mobile-row"><div class="price-box"><span class="val-sub">국제 (1oz)</span><span class="val-main">${curr["silver"]:,.2f}</span>{get_delta_html(curr["silver"], prev["silver"], "$")}</div><div class="price-box"><span class="val-sub">국내환산 (1돈)</span><span class="val-main">{int(curr["silver_don"]):,}원</span>{get_delta_html(curr["silver_don"], prev["silver_don"])}</div></div><p class="ref-time-integrated">수집기준: {intl_time}</p>', unsafe_allow_html=True)
+    st.markdown('<p class="main-title">⚪ 국제 은 시세 (13:30 정산 기준)</p>', unsafe_allow_html=True)
+    st.markdown(f'<div class="mobile-row"><div class="price-box"><span class="val-sub">국제 (1oz)</span><span class="val-main">${curr["silver"]:,.2f}</span>{get_delta_html(curr["silver"], prev["silver"], "$")}</div><div class="price-box"><span class="val-sub">국내환산 (1돈)</span><span class="val-main">{int(curr["silver_don"]):,}원</span>{get_delta_html(curr["silver_don"], prev["silver_don"])}</div></div>', unsafe_allow_html=True)
     
     s1, s2 = st.tabs(["$/oz 차트", "₩/돈 차트"])
     with s1:
@@ -166,4 +152,4 @@ if df_intl is not None:
     with s2:
         df_sv_won = df_intl[['silver_don']] / 10000
         fig_s_won = px.line(df_sv_won, y='silver_don').update_traces(line_color='#adb5bd', customdata=df_intl[['silver_don']])
-        st.plotly_chart(update_chart_style(fig_s_won, df_sv_won, df_sv_won['silver_don'].min()*0.95, df_sv_won['silver_don'].max()*1.05, is_won=True, is_silver=True), use_container_width=True, config={'displayModeBar': False})
+        st.plotly_chart(update_chart_style(fig_s_won, df_sv_won, df_sv_won['silver_don'].min()*0.95, df_sv_won['silver_don'].max()*1.05, is_won=True), use_container_width=True, config={'displayModeBar': False})

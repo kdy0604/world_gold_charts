@@ -84,19 +84,36 @@ def get_krx_data():
     return None, None
 
 @st.cache_data(ttl=120)
-def get_intl_data():
+def get_intl_data_settlement():
     try:
-        # 1. 이전 데이터는 뉴욕 17:00 종가 기준
-        df = yf.download(["GC=F", "SI=F", "KRW=X"], period="3mo", interval="1d", progress=False)['Close']
-        df = df.rename(columns={"GC=F": "gold", "SI=F": "silver", "KRW=X": "ex"}).ffill().dropna()
-        # 2. 오늘 데이터는 실시간 반영
+        # 1. 1시간 단위(1h)로 데이터를 넉넉하게 가져옴 (1시 30분 가격 추출용)
+        # 3.75(돈) 환산을 위해 환율(KRW=X)도 함께 가져옵니다.
+        raw_df = yf.download(["GC=F", "SI=F", "KRW=X"], period="3mo", interval="1h", progress=False)['Close']
+        raw_df.index = raw_df.index.tz_convert('America/New_York') # 뉴욕 시간으로 변환
+        
+        # 2. 매일 뉴욕 시간 오후 1시(13:00) 데이터만 필터링 (공식 정산가 시점)
+        # 이 시점의 가격이 네이버나 TradingCharts의 종가와 가장 가깝습니다.
+        df_daily = raw_df[raw_df.index.hour == 13].copy()
+        df_daily.index = df_daily.index.date # 시/분 제거하고 날짜만 남김
+        df_daily = df_daily.rename(columns={"GC=F": "gold", "SI=F": "silver", "KRW=X": "ex"}).ffill()
+
+        # 3. 오늘 데이터는 실시간 반영 (요청하신 조건)
         for t, col in zip(["GC=F", "SI=F", "KRW=X"], ["gold", "silver", "ex"]):
-            live = yf.Ticker(t).fast_info.last_price
-            if live > 0: df.iloc[-1, df.columns.get_loc(col)] = live
-        df['gold_don'] = (df['gold'] / 31.1034) * df['ex'] * 3.75
-        df['silver_don'] = (df['silver'] / 31.1034) * df['ex'] * 3.75
-        return df, datetime.now(KST).strftime('%m-%d %H:%M')
-    except: return None, None
+            live_price = yf.Ticker(t).fast_info.last_price
+            if live_price > 0:
+                # 마지막 행이 오늘 날짜가 아니면 추가, 맞으면 업데이트
+                today_date = datetime.now(pytz.timezone('America/New_York')).date()
+                df_daily.loc[today_date, col] = live_price
+
+        # 4. 원화 환산
+        df_daily['gold_don'] = (df_daily['gold'] / 31.1034) * df_daily['ex'] * 3.75
+        df_daily['silver_don'] = (df_daily['silver'] / 31.1034) * df_daily['ex'] * 3.75
+        
+        return df_daily.dropna(), datetime.now(KST).strftime('%m-%d %H:%M')
+    except Exception as e:
+        st.error(f"데이터 추출 오류: {e}")
+        return None, None
+
 
 # 데이터 실행
 df_intl, intl_time = get_intl_data()

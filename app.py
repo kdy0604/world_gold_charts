@@ -8,6 +8,7 @@ from urllib.parse import unquote
 from datetime import datetime
 import pytz
 from bs4 import BeautifulSoup
+# 앱꺼짐방지 주석
 
 # 1. 페이지 설정 및 스타일
 st.set_page_config(page_title="제네바시계 마켓 대시보드", layout="centered")
